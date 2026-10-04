@@ -65,7 +65,7 @@ class RappelChampionnat(commands.Cog):
 
   @tasks.loop(hours=24)
   async def rappel_entrainement_champ(self):
-    now_date = datetime.now().strftime("%Y-%m-%d")
+    now_date = datetime.now().strftime("%Y-%m#%%d")
     champ_config = load_json(CHAMP_FILE, {})
 
     for course, data in champ_config.items():
@@ -91,13 +91,67 @@ class RappelChampionnat(commands.Cog):
     await self.bot.wait_until_ready()
 
 
+# --- COMMANDE SLASH DISPO & AUTOCOMPLÉTIONS ---
+@bot.tree.command(
+    name="dispo", description="Indiquer ses disponibilités pour une course"
+)
+@app_commands.describe(
+    pilote="Sélectionne ton nom", course="Nom de la course"
+)
+async def dispo(interaction: discord.Interaction, pilote: str, course: str):
+  config = load_json(CONFIG_FILE, {})
+  if course not in config:
+    config[course] = {}
+  config[course][pilote] = "Enregistré"
+  with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+    json.dump(config, f, indent=4, ensure_ascii=False)
+
+  await interaction.response.send_message(
+      f"✅ Disponibilité enregistrée pour **{pilote}** sur la course"
+      f" **{course}** !",
+      ephemeral=True,
+  )
+
+
+@dispo.autocomplete("pilote")
+async def dispo_pilote_autocomplete(
+    interaction: discord.Interaction, current: str
+):
+  pilotes = []
+  if interaction.guild:
+    role = interaction.guild.get_role(ROLE_PILOTE_SPM_ID)
+    if role:
+      pilotes = [member.display_name for member in role.members]
+  if not pilotes:
+    pilotes = ["Pilote Stinger"]
+  return [
+      app_commands.Choice(name=p, value=p)
+      for p in pilotes
+      if current.lower() in p.lower()
+  ][:25]
+
+
+@dispo.autocomplete("course")
+async def dispo_course_autocomplete(
+    interaction: discord.Interaction, current: str
+):
+  champ_config = load_json(CHAMP_FILE, {})
+  courses = list(champ_config.keys())
+  if not courses:
+    courses = ["6 Heures de Fuji", "Le Mans", "Spa-Francorchamps"]
+  return [
+      app_commands.Choice(name=c, value=c)
+      for c in courses
+      if current.lower() in c.lower()
+  ][:25]
+
+
 @bot.event
 async def on_ready():
-  # On s'assure d'ajouter le cog une seule fois au démarrage global
-  if not bot.get_cog("RappelChampionnat"):
+  if not "RappelChampionnat" in bot.cogs:
     await bot.add_cog(RappelChampionnat(bot))
 
-  print(f"Bot connecté en tant5 que {bot.user} !")
+  print(f"Bot connecté en tant que {bot.user} !")
   try:
     synced = await bot.tree.sync()
     print(f"Commandes slash synchronisées : {len(synced)}")
@@ -105,5 +159,5 @@ async def on_ready():
     print(e)
 
 
-# Lancement sécurisé du bot via variable d'environnement (Render)
+# Lancement sécurisé du bot via variable d'environnement
 bot.run(os.getenv("DISCORD_TOKEN"))
