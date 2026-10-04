@@ -1,0 +1,12 @@
+{
+  "6H DE FUJI": {
+    "categories": ["HYPERCAR", "LMP2", "LMGT3"],
+    "jours": ["Vendredi", "Samedi", "Dimanche"],
+    "creneaux": ["2h00", "7h00", "12h00", "17h00", "22h00"]
+  },
+  "12H DE TEST": {
+    "categories": ["HYPERCAR", "LMP2", "LMGT3"],
+    "jours": ["Vendredi", "Samedi", "Dimanche"],
+    "creneaux": ["2h00", "7h00", "12h00", "17h00", "22h00"]
+  }
+}
