@@ -65,7 +65,7 @@ class RappelChampionnat(commands.Cog):
 
   @tasks.loop(hours=24)
   async def rappel_entrainement_champ(self):
-    now_date = datetime.now().strftime("%Y-%m#%%d")
+    now_date = datetime.now().strftime("%Y-%m-%d")
     champ_config = load_json(CHAMP_FILE, {})
 
     for course, data in champ_config.items():
@@ -93,10 +93,11 @@ class RappelChampionnat(commands.Cog):
 
 @bot.event
 async def on_ready():
-  if not "RappelChampionnat" in bot.cogs:
+  # On s'assure d'ajouter le cog une seule fois au démarrage global
+  if not bot.get_cog("RappelChampionnat"):
     await bot.add_cog(RappelChampionnat(bot))
 
-  print(f"Bot connecté en tant que {bot.user} !")
+  print(f"Bot connecté en tant5 que {bot.user} !")
   try:
     synced = await bot.tree.sync()
     print(f"Commandes slash synchronisées : {len(synced)}")
