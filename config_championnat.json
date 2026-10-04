@@ -1,0 +1,18 @@
+{
+    "DAYTONA": {
+        "date_course": "2026-10-11",
+        "date_entrainement": "2026-10-07"
+    },
+    "LE MANS": {
+        "date_course": "2026-11-01",
+        "date_entrainement": "2026-10-28"
+    },
+    "PAUL-RICARD": {
+        "date_course": "2026-11-08",
+        "date_entrainement": "2026-11-04"
+    },
+    "SPA": {
+        "date_course": "2026-11-22",
+        "date_entrainement": "2026-11-18"
+    }
+}

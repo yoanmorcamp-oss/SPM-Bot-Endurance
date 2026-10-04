@@ -1,13 +1,15 @@
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
+import threading
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-# Configuration des identifiants (Remplace par tes vrais ID Discord)
-SALON_ENTRAINEMENT_ID = 1525497448305393705  # ID de ton salon textuel
-ROLE_PILOTE_SPM_ID = 1222995895000371290  # ID du rôle @Pilote SPM
+# Configuration des identifiants (IDs de ton salon et de ton rôle)
+SALON_ENTRAINEMENT_ID = 1525497448305393705
+ROLE_PILOTE_SPM_ID = 1222995895000371290
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -29,6 +31,28 @@ def load_json(filename, default):
   return default
 
 
+# --- PETIT SERVEUR WEB POUR RENDRE HEUREUX RENDER ---
+class DummyHandler(BaseHTTPRequestHandler):
+
+  def do_GET(self):
+    self.send_response(200)
+    self.end_headers()
+    self.wfile.write(b"Bot Discord SPM Actif !")
+
+  def log_message(self, format, *args):
+    pass
+
+
+def run_web_server():
+  port = int(os.getenv("PORT", 10000))
+  server = HTTPServer(("0.0.0.0", port), DummyHandler)
+  server.serve_forever()
+
+
+# Lancement du serveur web en arrière-plan (pour Render)
+threading.Thread(target=run_web_server, daemon=True).start()
+
+
 # --- GESTIONNAIRE DE RAPPEL AUTOMATIQUE CHAMPIONNAT ---
 class RappelChampionnat(commands.Cog):
 
@@ -41,7 +65,7 @@ class RappelChampionnat(commands.Cog):
 
   @tasks.loop(hours=24)
   async def rappel_entrainement_champ(self):
-    now_date = datetime.now().strftime("%Y-%m-%d")
+    now_date = datetime.now().strftime("%Y-%m#%%d")
     champ_config = load_json(CHAMP_FILE, {})
 
     for course, data in champ_config.items():
@@ -69,7 +93,6 @@ class RappelChampionnat(commands.Cog):
 
 @bot.event
 async def on_ready():
-  # Enregistrement dynamique de la tâche de fond au démarrage du bot
   if not "RappelChampionnat" in bot.cogs:
     await bot.add_cog(RappelChampionnat(bot))
 
@@ -79,10 +102,6 @@ async def on_ready():
     print(f"Commandes slash synchronisées : {len(synced)}")
   except Exception as e:
     print(e)
-
-
-# (Ici se trouvent tes autres commandes habituelles /dispo, /planning, etc.)
-# ...
 
 
 # Lancement sécurisé du bot via variable d'environnement (Render)
