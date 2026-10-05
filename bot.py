@@ -179,6 +179,16 @@ class ConfirmButton(discord.ui.Button):
     if view.course not in config:
       config[view.course] = {}
 
+    # Nettoyage préalable des anciennes dispos de ce pilote pour cette course pour éviter les doublons/scories
+    for cat_k, cat_v in list(config[view.course].items()):
+      if isinstance(cat_v, dict):
+        for day_k, day_v in list(cat_v.items()):
+          if isinstance(day_v, dict):
+            for slot_k, slot_pilotes in list(day_v.items()):
+              if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
+                slot_pilotes.remove(view.pilote)
+
+    # Enregistrement propre
     for cat in view.selected_categories:
       if cat not in config[view.course]:
         config[view.course][cat] = {}
@@ -200,40 +210,55 @@ class ConfirmButton(discord.ui.Button):
         content="✅ **Disponibilités enregistrées avec succès !**", view=view
     )
 
+    # --- CONSTRUCTION D'UN RÉCAPITULATIF GLOBAL PROPRE ---
     channel = interaction.channel
     if channel:
-      cats_str = ", ".join(view.selected_categories)
-
-      # Tri chronologique des jours selon la config de la course
       ordre_jours_ref = view.course_data.get("jours", [])
-      jours_tires = sorted(
-          view.selected_jours,
-          key=lambda x: (
-              ordre_jours_ref.index(x) if x in ordre_jours_ref else 99
-          ),
-      )
-      jours_str = ", ".join(jours_tires)
-
-      # Tri chronologique des créneaux selon la config de la course
       ordre_creneaux_ref = view.course_data.get("creneaux", [])
-      creneaux_tires = sorted(
-          view.selected_creneaux,
-          key=lambda x: (
-              ordre_creneaux_ref.index(x) if x in ordre_creneaux_ref else 99
-          ),
-      )
-      creneaux_str = "\n".join(
-          [f"• **{c}** ➔ **{view.pilote}**" for c in creneaux_tires]
-      )
 
       embed = discord.Embed(
-          title=f"🏎️ Planning - {view.course}",
-          description=(
-              f"📅 **{jours_str}**\nCatégorie : **{cats_str}**\n{creneaux_str}"
-          ),
+          title=f"📊 Récapitulatif des Dispos — {view.course}",
+          description=f"Mise à jour suite au choix de **{view.pilote}**",
           color=discord.Color.blue(),
       )
-      await channel.send(embed=embed)
+
+      course_data = config[view.course]
+      for cat, jours_dict in course_data.items():
+        cat_text = ""
+        # Trier les jours selon l'ordre de référence
+        jours_tries = sorted(
+            jours_dict.keys(),
+            key=lambda x: (
+                ordre_jours_ref.index(x) if x in ordre_jours_ref else 99
+            ),
+        )
+
+        for jour in jours_tries:
+          creneaux_dict = jours_dict[jour]
+          cat_text += f"📅 **{jour}**\n"
+          
+          creneaux_tries = sorted(
+              creneaux_dict.keys(),
+              key=lambda x: (
+                  ordre_creneaux_ref.index(x) if x in ordre_creneaux_ref else 99
+              ),
+          )
+
+          for creneau in creneaux_tries:
+            pilotes = creneaux_dict[creneau]
+            if pilotes:
+              pilotes_str = ", ".join(pilotes)
+              cat_text += f" • `{creneau}` ➔ {pilotes_str}\n"
+            else:
+              cat_text += f" • `{creneau}` ➔ *Personne*\n"
+          cat_text += "\n"
+
+        if cat_text:
+          embed.add_field(
+              name=f"🏎️ Catégorie : {cat}", value=cat_text, inline=False
+          )
+
+      await interaction.followup.send(embed=embed)
 
 
 class ClearButton(discord.ui.Button):
@@ -250,14 +275,15 @@ class ClearButton(discord.ui.Button):
     config_data = load_json(CONFIG_FILE, {})
 
     for c_key, c_data in config_data.items():
-      if isinstance(c_data, dict):
-        for sub_k, sub_v in list(c_data.items()):
-          if isinstance(sub_v, dict):
-            for day_k, day_v in list(sub_v.items()):
-              if isinstance(day_v, dict):
-                for slot_k, slot_pilotes in list(day_v.items()):
-                  if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
-                    slot_pilotes.remove(view.pilote)
+      if c_key == view.course:
+        if isinstance(c_data, dict):
+          for sub_k, sub_v in list(c_data.items()):
+            if isinstance(sub_v, dict):
+              for day_k, day_v in list(sub_v.items()):
+                if isinstance(day_v, dict):
+                  for slot_k, slot_pilotes in list(day_v.items()):
+                    if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
+                      slot_pilotes.remove(view.pilote)
 
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
       json.dump(config_data, f, indent=4, ensure_ascii=False)
