@@ -17,7 +17,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-CONFIG_FILE = "config_course_2.json"
+CONFIG_FILE = "config_course.json"  # Mets ici le nom exact de ton fichier de configuration des courses
 CHAMP_FILE = "config_championnat.json"
 DRIVERS_FILE = "drivers.json"
 
