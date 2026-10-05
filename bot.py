@@ -32,7 +32,7 @@ def load_json(filename, default):
   return default
 
 
-# --- PETIT SERVEUR WEB (POUR RAILWAY/RENDER) ---
+# --- PETIT SERVEUR WEB (POUR RAILWAY) ---
 class DummyHandler(BaseHTTPRequestHandler):
 
   def do_GET(self):
@@ -101,13 +101,13 @@ class DispoView(discord.ui.View):
     self.course_data = course_data
 
     self.selected_categories = set()
-    self.selected_slots = set()  # Stockera les paires (jour, creneau)
+    self.selected_slots = set()  # Stocke les tuples (jour, creneau)
 
-    # Boutons pour les catégories
+    # 1. Boutons pour les catégories
     for cat in course_data.get("categories", []):
-      self.add_item(ItemButton(cat, "cat"))
+      self.add_item(CategoryButton(cat))
 
-    # Boutons combinés Jour + Créneau pour un choix précis
+    # 2. Boutons combinés Jour + Créneau précis
     for jour in course_data.get("jours", []):
       for creneau in course_data.get("creneaux", []):
         self.add_item(SlotButton(jour, creneau))
@@ -116,24 +116,22 @@ class DispoView(discord.ui.View):
     self.add_item(ClearButton())
 
 
-class ItemButton(discord.ui.Button):
+class CategoryButton(discord.ui.Button):
 
-  def __init__(self, label: str, group: str):
+  def __init__(self, cat: str):
     super().__init__(
-        label=label, style=discord.ButtonStyle.secondary, custom_id=f"{group}_{label}"
+        label=cat, style=discord.ButtonStyle.secondary, custom_id=f"cat_{cat}"
     )
-    self.group = group
+    self.cat = cat
 
   async def callback(self, interaction: discord.Interaction):
     view: DispoView = self.view
-
-    if self.label in view.selected_categories:
-      view.selected_categories.remove(self.label)
+    if self.cat in view.selected_categories:
+      view.selected_categories.remove(self.cat)
       self.style = discord.ButtonStyle.secondary
     else:
-      view.selected_categories.add(self.label)
+      view.selected_categories.add(self.cat)
       self.style = discord.ButtonStyle.success
-
     await interaction.response.edit_message(view=view)
 
 
@@ -178,7 +176,7 @@ class ConfirmButton(discord.ui.Button):
     if not view.selected_categories or not view.selected_slots:
       await interaction.response.send_message(
           "⚠️ Tu dois sélectionner au moins une **catégorie** et un"
-          " **créneau** !",
+          " **créneau horaire précis** !",
           ephemeral=True,
       )
       return
@@ -187,7 +185,7 @@ class ConfirmButton(discord.ui.Button):
     if view.course not in config:
       config[view.course] = {}
 
-    # Nettoyage préalable des anciennes dispos de ce pilote pour cette course
+    # 1. Nettoyage strict des anciennes dispos de ce pilote pour cette course
     for cat_k, cat_v in list(config[view.course].items()):
       if isinstance(cat_v, dict):
         for day_k, day_v in list(cat_v.items()):
@@ -196,7 +194,7 @@ class ConfirmButton(discord.ui.Button):
               if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
                 slot_pilotes.remove(view.pilote)
 
-    # Enregistrement précis des paires Jour/Créneau choisies
+    # 2. Enregistrement des nouvelles paires (jour, creneau) sélectionnées
     for cat in view.selected_categories:
       if cat not in config[view.course]:
         config[view.course][cat] = {}
@@ -217,21 +215,24 @@ class ConfirmButton(discord.ui.Button):
         content="✅ **Disponibilités enregistrées avec succès !**", view=view
     )
 
-    # --- CONSTRUCTION DU RÉCAPITULATIF GLOBAL ---
+    # --- ENVOI DU RÉCAPITULATIF GLOBAL TRIÉ DANS LE SALON ---
     channel = interaction.channel
     if channel:
       ordre_jours_ref = view.course_data.get("jours", [])
       ordre_creneaux_ref = view.course_data.get("creneaux", [])
 
       embed = discord.Embed(
-          title=f"📊 Récapitulatif des Dispos — {view.course}",
-          description=f"Mise à jour suite au choix de **{view.pilote}**",
+          title=f"📊 Récapitulatif Global des Dispos — {view.course}",
+          description=(
+              f"Mise à jour effectuée par **{view.pilote}**"
+          ),
           color=discord.Color.blue(),
       )
 
       course_data = config[view.course]
       for cat, jours_dict in course_data.items():
         cat_text = ""
+        # Tri des jours selon l'ordre de la config
         jours_tries = sorted(
             jours_dict.keys(),
             key=lambda x: (
@@ -243,6 +244,7 @@ class ConfirmButton(discord.ui.Button):
           creneaux_dict = jours_dict[jour]
           cat_text += f"📅 **{jour}**\n"
 
+          # Tri des créneaux selon l'ordre de la config
           creneaux_tries = sorted(
               creneaux_dict.keys(),
               key=lambda x: (
@@ -253,7 +255,9 @@ class ConfirmButton(discord.ui.Button):
           for creneau in creneaux_tries:
             pilotes = creneaux_dict[creneau]
             if pilotes:
-              pilotes_str = ", ".join(pilotes)
+              # Tri alphabétique des pilotes pour plus de propreté
+              pilotes_tries = sorted(pilotes)
+              pilotes_str = ", ".join(pilotes_tries)
               cat_text += f" • `{creneau}` ➔ {pilotes_str}\n"
             else:
               cat_text += f" • `{creneau}` ➔ *Personne*\n"
@@ -264,7 +268,7 @@ class ConfirmButton(discord.ui.Button):
               name=f"🏎️ Catégorie : {cat}", value=cat_text, inline=False
           )
 
-      await interaction.followup.send(embed=embed)
+      await channel.send(embed=embed)
 
 
 class ClearButton(discord.ui.Button):
@@ -302,15 +306,57 @@ class ClearButton(discord.ui.Button):
         view=view,
     )
 
-    embed = discord.Embed(
-        title=f"🗑️ Planning mis à jour — {view.course}",
-        description=(
-            f"Le pilote **{view.pilote}** a **effacé toutes ses"
-            " disponibilités** pour cette course."
-        ),
-        color=discord.Color.red(),
-    )
-    await interaction.followup.send(embed=embed)
+    # --- ENVOI DU RÉCAPITULATIF APRÈS EFFACEMENT ---
+    channel = interaction.channel
+    if channel:
+      ordre_jours_ref = view.course_data.get("jours", [])
+      ordre_creneaux_ref = view.course_data.get("creneaux", [])
+
+      embed = discord.Embed(
+          title=f"📊 Récapitulatif Global des Dispos — {view.course}",
+          description=(
+              f"Mise à jour : **{view.pilote}** a effacé ses disponibilités."
+          ),
+          color=discord.Color.red(),
+      )
+
+      course_data = config_data[view.course]
+      for cat, jours_dict in course_data.items():
+        cat_text = ""
+        jours_tries = sorted(
+            jours_dict.keys(),
+            key=lambda x: (
+                ordre_jours_ref.index(x) if x in ordre_jours_ref else 99
+            ),
+        )
+
+        for jour in jours_tries:
+          creneaux_dict = jours_dict[jour]
+          cat_text += f"📅 **{jour}**\n"
+
+          creneaux_tries = sorted(
+              creneaux_dict.keys(),
+              key=lambda x: (
+                  ordre_creneaux_ref.index(x) if x in ordre_creneaux_ref else 99
+              ),
+          )
+
+          for creneau in creneaux_tries:
+            pilotes = creneaux_dict[creneau]
+            if pilotes:
+              pilotes_tries = sorted(pilotes)
+              pilotes_str = ", ".join(pilotes_tries)
+              cat_text += f" • `{creneau}` ➔ {pilotes_str}\n"
+            else:
+              cat_text += f" • `{creneau}` ➔ *Personne*\n"
+          cat_text += "\n"
+
+        if cat_text:
+          embed.add_field(
+              name=f"🏎️ Catégorie : {cat}", value=cat_text, inline=False
+          )
+
+      await channel.send(embed=embed)
 
 
 # --- COMMANDE SLASH DISPO ---
@@ -332,9 +378,9 @@ async def dispo(interaction: discord.Interaction, pilote: str, course: str):
 
   view = DispoView(pilote=pilote, course=course, course_data=config_data[course])
   await interaction.response.send_message(
-      f"🎛️ **Pilote : {pilote}** | Course : **{course}**\nClique sur les"
-      " éléments pour les activer (**vert**), puis clique sur **Valider** ou"
-      " **Effacer** :",
+      f"🎛️ **Pilote : {pilote}** | Course : **{course}**\nSélectionne tes"
+      " catégories et créneaux précis, puis clique sur **Valider mes dispos**"
+      " :",
       view=view,
       ephemeral=True,
   )
