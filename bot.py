@@ -104,19 +104,15 @@ class DispoView(discord.ui.View):
     self.selected_jours = set()
     self.selected_creneaux = set()
 
-    # Génération des boutons pour les Catégories
     for cat in course_data.get("categories", []):
       self.add_item(ItemButton(cat, "cat"))
 
-    # Génération des boutons pour les Jours
     for jour in course_data.get("jours", []):
       self.add_item(ItemButton(jour, "jour"))
 
-    # Génération des boutons pour les Créneaux
     for creneau in course_data.get("creneaux", []):
       self.add_item(ItemButton(creneau, "creneau"))
 
-    # Bouton de validation final
     self.add_item(ConfirmButton())
 
 
@@ -137,7 +133,7 @@ class ItemButton(discord.ui.Button):
         self.style = discord.ButtonStyle.secondary
       else:
         view.selected_categories.add(self.label)
-        self.style = discord.ButtonStyle.success  # Passe au vert
+        self.style = discord.ButtonStyle.success
 
     elif self.group == "jour":
       if self.label in view.selected_jours:
@@ -145,7 +141,7 @@ class ItemButton(discord.ui.Button):
         self.style = discord.ButtonStyle.secondary
       else:
         view.selected_jours.add(self.label)
-        self.style = discord.ButtonStyle.success  # Passe au vert
+        self.style = discord.ButtonStyle.success
 
     elif self.group == "creneau":
       if self.label in view.selected_creneaux:
@@ -153,7 +149,7 @@ class ItemButton(discord.ui.Button):
         self.style = discord.ButtonStyle.secondary
       else:
         view.selected_creneaux.add(self.label)
-        self.style = discord.ButtonStyle.success  # Passe au vert
+        self.style = discord.ButtonStyle.success
 
     await interaction.response.edit_message(view=view)
 
@@ -178,7 +174,6 @@ class ConfirmButton(discord.ui.Button):
       )
       return
 
-    # Enregistrement dans le fichier JSON
     config = load_json(CONFIG_FILE, {})
     if view.course not in config:
       config[view.course] = {}
@@ -198,14 +193,12 @@ class ConfirmButton(discord.ui.Button):
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
       json.dump(config, f, indent=4, ensure_ascii=False)
 
-    # Désactivation de la vue après validation
     for child in view.children:
       child.disabled = True
     await interaction.response.edit_message(
         content="✅ **Disponibilités enregistrées avec succès !**", view=view
     )
 
-    # Envoi du message embed automatique dans le salon
     channel = interaction.channel
     if channel:
       cats_str = ", ".join(view.selected_categories)
@@ -235,7 +228,6 @@ class ConfirmButton(discord.ui.Button):
 async def dispo(interaction: discord.Interaction, pilote: str, course: str):
   config_data = load_json(CONFIG_FILE, {})
 
-  # Option poubelle pour effacer ses infos
   if pilote == "🗑️ Effacer mes dispos":
     for c_key, c_data in config_data.items():
       if isinstance(c_data, dict):
@@ -265,7 +257,6 @@ async def dispo(interaction: discord.Interaction, pilote: str, course: str):
     )
     return
 
-  # Envoie le panneau interactif avec les boutons
   view = DispoView(pilote=pilote, course=course, course_data=config_data[course])
   await interaction.response.send_message(
       f"🎛️ **Pilote : {pilote}** | Course : **{course}**\nClique sur les"
@@ -285,7 +276,7 @@ async def dispo_pilote_autocomplete(
   options = ["🗑️ Effacer mes dispos"] + pilotes
   return [
       app_commands.Choice(name=p, value=p)
-      for p in pilotes + ["🗑️ Effacer mes dispos"]
+      for p in options
       if current.lower() in p.lower()
   ][:25]
 
