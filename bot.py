@@ -32,7 +32,7 @@ def load_json(filename, default):
   return default
 
 
-# --- PETIT SERVEUR WEB ---
+# --- PETIT SERVEUR WEB (POUR RAILWAY/RENDER) ---
 class DummyHandler(BaseHTTPRequestHandler):
 
   def do_GET(self):
@@ -101,17 +101,16 @@ class DispoView(discord.ui.View):
     self.course_data = course_data
 
     self.selected_categories = set()
-    self.selected_jours = set()
-    self.selected_creneaux = set()
+    self.selected_slots = set()  # Stockera les paires (jour, creneau)
 
+    # Boutons pour les catégories
     for cat in course_data.get("categories", []):
       self.add_item(ItemButton(cat, "cat"))
 
+    # Boutons combinés Jour + Créneau pour un choix précis
     for jour in course_data.get("jours", []):
-      self.add_item(ItemButton(jour, "jour"))
-
-    for creneau in course_data.get("creneaux", []):
-      self.add_item(ItemButton(creneau, "creneau"))
+      for creneau in course_data.get("creneaux", []):
+        self.add_item(SlotButton(jour, creneau))
 
     self.add_item(ConfirmButton())
     self.add_item(ClearButton())
@@ -128,29 +127,38 @@ class ItemButton(discord.ui.Button):
   async def callback(self, interaction: discord.Interaction):
     view: DispoView = self.view
 
-    if self.group == "cat":
-      if self.label in view.selected_categories:
-        view.selected_categories.remove(self.label)
-        self.style = discord.ButtonStyle.secondary
-      else:
-        view.selected_categories.add(self.label)
-        self.style = discord.ButtonStyle.success
+    if self.label in view.selected_categories:
+      view.selected_categories.remove(self.label)
+      self.style = discord.ButtonStyle.secondary
+    else:
+      view.selected_categories.add(self.label)
+      self.style = discord.ButtonStyle.success
 
-    elif self.group == "jour":
-      if self.label in view.selected_jours:
-        view.selected_jours.remove(self.label)
-        self.style = discord.ButtonStyle.secondary
-      else:
-        view.selected_jours.add(self.label)
-        self.style = discord.ButtonStyle.success
+    await interaction.response.edit_message(view=view)
 
-    elif self.group == "creneau":
-      if self.label in view.selected_creneaux:
-        view.selected_creneaux.remove(self.label)
-        self.style = discord.ButtonStyle.secondary
-      else:
-        view.selected_creneaux.add(self.label)
-        self.style = discord.ButtonStyle.success
+
+class SlotButton(discord.ui.Button):
+
+  def __init__(self, jour: str, creneau: str):
+    label = f"{jour} - {creneau}"
+    super().__init__(
+        label=label,
+        style=discord.ButtonStyle.secondary,
+        custom_id=f"slot_{jour}_{creneau}",
+    )
+    self.jour = jour
+    self.creneau = creneau
+
+  async def callback(self, interaction: discord.Interaction):
+    view: DispoView = self.view
+    pair = (self.jour, self.creneau)
+
+    if pair in view.selected_slots:
+      view.selected_slots.remove(pair)
+      self.style = discord.ButtonStyle.secondary
+    else:
+      view.selected_slots.add(pair)
+      self.style = discord.ButtonStyle.success
 
     await interaction.response.edit_message(view=view)
 
@@ -167,9 +175,9 @@ class ConfirmButton(discord.ui.Button):
   async def callback(self, interaction: discord.Interaction):
     view: DispoView = self.view
 
-    if not view.selected_categories or not view.selected_jours or not view.selected_creneaux:
+    if not view.selected_categories or not view.selected_slots:
       await interaction.response.send_message(
-          "⚠️ Tu dois sélectionner au moins une **catégorie**, un **jour** et un"
+          "⚠️ Tu dois sélectionner au moins une **catégorie** et un"
           " **créneau** !",
           ephemeral=True,
       )
@@ -179,7 +187,7 @@ class ConfirmButton(discord.ui.Button):
     if view.course not in config:
       config[view.course] = {}
 
-    # Nettoyage préalable des anciennes dispos de ce pilote pour cette course pour éviter les doublons/scories
+    # Nettoyage préalable des anciennes dispos de ce pilote pour cette course
     for cat_k, cat_v in list(config[view.course].items()):
       if isinstance(cat_v, dict):
         for day_k, day_v in list(cat_v.items()):
@@ -188,18 +196,17 @@ class ConfirmButton(discord.ui.Button):
               if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
                 slot_pilotes.remove(view.pilote)
 
-    # Enregistrement propre
+    # Enregistrement précis des paires Jour/Créneau choisies
     for cat in view.selected_categories:
       if cat not in config[view.course]:
         config[view.course][cat] = {}
-      for jour in view.selected_jours:
+      for jour, creneau in view.selected_slots:
         if jour not in config[view.course][cat]:
           config[view.course][cat][jour] = {}
-        for creneau in view.selected_creneaux:
-          if creneau not in config[view.course][cat][jour]:
-            config[view.course][cat][jour][creneau] = []
-          if view.pilote not in config[view.course][cat][jour][creneau]:
-            config[view.course][cat][jour][creneau].append(view.pilote)
+        if creneau not in config[view.course][cat][jour]:
+          config[view.course][cat][jour][creneau] = []
+        if view.pilote not in config[view.course][cat][jour][creneau]:
+          config[view.course][cat][jour][creneau].append(view.pilote)
 
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
       json.dump(config, f, indent=4, ensure_ascii=False)
@@ -210,7 +217,7 @@ class ConfirmButton(discord.ui.Button):
         content="✅ **Disponibilités enregistrées avec succès !**", view=view
     )
 
-    # --- CONSTRUCTION D'UN RÉCAPITULATIF GLOBAL PROPRE ---
+    # --- CONSTRUCTION DU RÉCAPITULATIF GLOBAL ---
     channel = interaction.channel
     if channel:
       ordre_jours_ref = view.course_data.get("jours", [])
@@ -225,7 +232,6 @@ class ConfirmButton(discord.ui.Button):
       course_data = config[view.course]
       for cat, jours_dict in course_data.items():
         cat_text = ""
-        # Trier les jours selon l'ordre de référence
         jours_tries = sorted(
             jours_dict.keys(),
             key=lambda x: (
@@ -236,7 +242,7 @@ class ConfirmButton(discord.ui.Button):
         for jour in jours_tries:
           creneaux_dict = jours_dict[jour]
           cat_text += f"📅 **{jour}**\n"
-          
+
           creneaux_tries = sorted(
               creneaux_dict.keys(),
               key=lambda x: (
