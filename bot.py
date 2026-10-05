@@ -270,6 +270,16 @@ class ClearButton(discord.ui.Button):
         view=view,
     )
 
+    embed = discord.Embed(
+        title=f"🗑️ Planning mis à jour — {view.course}",
+        description=(
+            f"Le pilote **{view.pilote}** a **effacé toutes ses"
+            " disponibilités** pour cette course."
+        ),
+        color=discord.Color.red(),
+    )
+    await interaction.followup.send(embed=embed)
+
 
 # --- COMMANDE SLASH DISPO ---
 @bot.tree.command(
