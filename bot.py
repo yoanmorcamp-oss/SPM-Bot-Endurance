@@ -17,7 +17,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-CONFIG_FILE = "config_course.json"
+CONFIG_FILE = "config_course_2.json"
 CHAMP_FILE = "config_championnat.json"
 DRIVERS_FILE = "drivers.json"
 
@@ -32,7 +32,7 @@ def load_json(filename, default):
   return default
 
 
-# --- PETIT SERVEUR WEB POUR RENDRE HEUREUX RENDER ---
+# --- PETIT SERVEUR WEB ---
 class DummyHandler(BaseHTTPRequestHandler):
 
   def do_GET(self):
@@ -50,7 +50,6 @@ def run_web_server():
   server.serve_forever()
 
 
-# Lancement du serveur web en arrière-plan (pour Render)
 threading.Thread(target=run_web_server, daemon=True).start()
 
 
@@ -92,32 +91,153 @@ class RappelChampionnat(commands.Cog):
     await self.bot.wait_until_ready()
 
 
-# --- COMMANDE SLASH DISPO & AUTOCOMPLÉTIONS ---
+# --- INTERFACE INTERACTIVE DE SÉLECTION PAR BOUTONS ---
+class DispoView(discord.ui.View):
+
+  def __init__(self, pilote: str, course: str, course_data: dict):
+    super().__init__(timeout=180)
+    self.pilote = pilote
+    self.course = course
+    self.course_data = course_data
+
+    self.selected_categories = set()
+    self.selected_jours = set()
+    self.selected_creneaux = set()
+
+    # Génération des boutons pour les Catégories
+    for cat in course_data.get("categories", []):
+      self.add_item(ItemButton(cat, "cat"))
+
+    # Génération des boutons pour les Jours
+    for jour in course_data.get("jours", []):
+      self.add_item(ItemButton(jour, "jour"))
+
+    # Génération des boutons pour les Créneaux
+    for creneau in course_data.get("creneaux", []):
+      self.add_item(ItemButton(creneau, "creneau"))
+
+    # Bouton de validation final
+    self.add_item(ConfirmButton())
+
+
+class ItemButton(discord.ui.Button):
+
+  def __init__(self, label: str, group: str):
+    super().__init__(
+        label=label, style=discord.ButtonStyle.secondary, custom_id=f"{group}_{label}"
+    )
+    self.group = group
+
+  async def callback(self, interaction: discord.Interaction):
+    view: DispoView = self.view
+
+    if self.group == "cat":
+      if self.label in view.selected_categories:
+        view.selected_categories.remove(self.label)
+        self.style = discord.ButtonStyle.secondary
+      else:
+        view.selected_categories.add(self.label)
+        self.style = discord.ButtonStyle.success  # Passe au vert
+
+    elif self.group == "jour":
+      if self.label in view.selected_jours:
+        view.selected_jours.remove(self.label)
+        self.style = discord.ButtonStyle.secondary
+      else:
+        view.selected_jours.add(self.label)
+        self.style = discord.ButtonStyle.success  # Passe au vert
+
+    elif self.group == "creneau":
+      if self.label in view.selected_creneaux:
+        view.selected_creneaux.remove(self.label)
+        self.style = discord.ButtonStyle.secondary
+      else:
+        view.selected_creneaux.add(self.label)
+        self.style = discord.ButtonStyle.success  # Passe au vert
+
+    await interaction.response.edit_message(view=view)
+
+
+class ConfirmButton(discord.ui.Button):
+
+  def __init__(self):
+    super().__init__(
+        label="✅ Valider mes dispos",
+        style=discord.ButtonStyle.primary,
+        row=4,
+    )
+
+  async def callback(self, interaction: discord.Interaction):
+    view: DispoView = self.view
+
+    if not view.selected_categories or not view.selected_jours or not view.selected_creneaux:
+      await interaction.response.send_message(
+          "⚠️ Tu dois sélectionner au moins une **catégorie**, un **jour** et un"
+          " **créneau** !",
+          ephemeral=True,
+      )
+      return
+
+    # Enregistrement dans le fichier JSON
+    config = load_json(CONFIG_FILE, {})
+    if view.course not in config:
+      config[view.course] = {}
+
+    for cat in view.selected_categories:
+      if cat not in config[view.course]:
+        config[view.course][cat] = {}
+      for jour in view.selected_jours:
+        if jour not in config[view.course][cat]:
+          config[view.course][cat][jour] = {}
+        for creneau in view.selected_creneaux:
+          if creneau not in config[view.course][cat][jour]:
+            config[view.course][cat][jour][creneau] = []
+          if view.pilote not in config[view.course][cat][jour][creneau]:
+            config[view.course][cat][jour][creneau].append(view.pilote)
+
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+      json.dump(config, f, indent=4, ensure_ascii=False)
+
+    # Désactivation de la vue après validation
+    for child in view.children:
+      child.disabled = True
+    await interaction.response.edit_message(
+        content="✅ **Disponibilités enregistrées avec succès !**", view=view
+    )
+
+    # Envoi du message embed automatique dans le salon
+    channel = interaction.channel
+    if channel:
+      cats_str = ", ".join(view.selected_categories)
+      jours_str = ", ".join(view.selected_jours)
+      creneaux_str = "\n".join(
+          [f"• **{c}** ➔ **{view.pilote}**" for c in view.selected_creneaux]
+      )
+
+      embed = discord.Embed(
+          title=f"🏎️ Planning - {view.course}",
+          description=(
+              f"📅 **{jours_str}**\nCatégorie : **{cats_str}**\n{creneaux_str}"
+          ),
+          color=discord.Color.blue(),
+      )
+      await channel.send(embed=embed)
+
+
+# --- COMMANDE SLASH DISPO ---
 @bot.tree.command(
     name="dispo", description="Indiquer ses disponibilités pour une course"
 )
 @app_commands.describe(
     pilote="Sélectionne ton nom (ou 🗑️ Effacer mes dispos)",
     course="Nom de la course",
-    categorie="Catégorie de véhicule",
-    jour="Jour de l'événement",
-    creneaux="Créneau horaire",
 )
-async def dispo(
-    interaction: discord.Interaction,
-    pilote: str,
-    course: str,
-    categorie: str,
-    jour: str,
-    creneaux: str,
-):
-  config = load_json(CONFIG_FILE, {})
+async def dispo(interaction: discord.Interaction, pilote: str, course: str):
+  config_data = load_json(CONFIG_FILE, {})
 
-  # Gestion de la suppression des disponibilités
+  # Option poubelle pour effacer ses infos
   if pilote == "🗑️ Effacer mes dispos":
-    # On parcourt la structure pour nettoyer le nom du joueur partout où il se trouve
-    supprimé = False
-    for c_key, c_data in config.items():
+    for c_key, c_data in config_data.items():
       if isinstance(c_data, dict):
         for sub_k, sub_v in list(c_data.items()):
           if isinstance(sub_v, dict):
@@ -129,52 +249,30 @@ async def dispo(
                       and interaction.user.display_name in slot_pilotes
                   ):
                     slot_pilotes.remove(interaction.user.display_name)
-                    supprimé = True
 
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-      json.dump(config, f, indent=4, ensure_ascii=False)
+      json.dump(config_data, f, indent=4, ensure_ascii=False)
 
     await interaction.response.send_message(
         "🗑️ Tes disponibilités ont été effacées avec succès.", ephemeral=True
     )
     return
 
-  # Structure attendue dans CONFIG_FILE : course -> catégorie -> jour -> créneau -> [liste de pilotes]
-  if course not in config:
-    config[course] = {}
-  if categorie not in config[course]:
-    config[course][categorie] = {}
-  if jour not in config[course][categorie]:
-    config[course][categorie][jour] = {}
-  if creneaux not in config[course][categorie][jour]:
-    config[course][categorie][jour][creneaux] = []
+  if course not in config_data:
+    await interaction.response.send_message(
+        f"⚠️ La course **{course}** est introuvable dans la configuration.",
+        ephemeral=True,
+    )
+    return
 
-  # Ajout du pilote s'il n'y est pas déjà
-  if pilote not in config[course][categorie][jour][creneaux]:
-    config[course][categorie][jour][creneaux].append(pilote)
-
-  with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-    json.dump(config, f, indent=4, ensure_ascii=False)
-
-  # Réponse éphémère à l'utilisateur
+  # Envoie le panneau interactif avec les boutons
+  view = DispoView(pilote=pilote, course=course, course_data=config_data[course])
   await interaction.response.send_message(
-      f"✅ Disponibilité enregistrée pour **{pilote}** sur **{course}** ("
-      f"**{categorie}** - **{jour}** à **{creneaux}**) !",
+      f"🎛️ **Pilote : {pilote}** | Course : **{course}**\nClique sur les"
+      " éléments pour les activer (**vert**), puis clique sur **Valider** :",
+      view=view,
       ephemeral=True,
   )
-
-  # Envoi du message automatique formaté dans le salon (comme sur ton modèle)
-  channel = interaction.channel
-  if channel:
-    embed = discord.Embed(
-        title=f"🏎️ Planning - {course}",
-        description=(
-            f"📅 **{jour}**\nCatégorie : **{categorie}**\n• **{creneaux}** ➔"
-            f" **{pilote}**"
-        ),
-        color=discord.Color.blue(),
-    )
-    await channel.send(embed=embed)
 
 
 @dispo.autocomplete("pilote")
@@ -184,13 +282,10 @@ async def dispo_pilote_autocomplete(
   pilotes = load_json(DRIVERS_FILE, [])
   if not isinstance(pilotes, list):
     pilotes = []
-
-  # Ajout de l'option poubelle pour effacer ses infos
   options = ["🗑️ Effacer mes dispos"] + pilotes
-
   return [
       app_commands.Choice(name=p, value=p)
-      for p in options
+      for p in pilotes + ["🗑️ Effacer mes dispos"]
       if current.lower() in p.lower()
   ][:25]
 
@@ -201,66 +296,10 @@ async def dispo_course_autocomplete(
 ):
   course_config = load_json(CONFIG_FILE, {})
   courses = list(course_config.keys())
-
   return [
       app_commands.Choice(name=c, value=c)
       for c in courses
       if current.lower() in c.lower()
-  ][:25]
-
-
-@dispo.autocomplete("categorie")
-async def dispo_categorie_autocomplete(
-    interaction: discord.Interaction, current: str
-):
-  # Récupère la course sélectionnée dynamiquement dans l'interaction
-  course_selected = interaction.namespace.course
-  course_config = load_json(CONFIG_FILE, {})
-
-  categories = []
-  if course_selected in course_config:
-    categories = course_config[course_selected].get("categories", [])
-
-  return [
-      app_commands.Choice(name=cat, value=cat)
-      for cat in categories
-      if current.lower() in cat.lower()
-  ][:25]
-
-
-@dispo.autocomplete("jour")
-async def dispo_jour_autocomplete(
-    interaction: discord.Interaction, current: str
-):
-  course_selected = interaction.namespace.course
-  course_config = load_json(CONFIG_FILE, {})
-
-  jours = []
-  if course_selected in course_config:
-    jours = course_config[course_selected].get("jours", [])
-
-  return [
-      app_commands.Choice(name=j, value=j)
-      for j in jours
-      if current.lower() in j.lower()
-  ][:25]
-
-
-@dispo.autocomplete("creneaux")
-async def dispo_creneaux_autocomplete(
-    interaction: discord.Interaction, current: str
-):
-  course_selected = interaction.namespace.course
-  course_config = load_json(CONFIG_FILE, {})
-
-  creneaux = []
-  if course_selected in course_config:
-    creneaux = course_config[course_selected].get("creneaux", [])
-
-  return [
-      app_commands.Choice(name=cr, value=cr)
-      for cr in creneaux
-      if current.lower() in cr.lower()
   ][:25]
 
 
@@ -277,5 +316,4 @@ async def on_ready():
     print(e)
 
 
-# Lancement sécurisé du bot via variable d'environnement
 bot.run(os.getenv("DISCORD_TOKEN"))
