@@ -203,9 +203,27 @@ class ConfirmButton(discord.ui.Button):
     channel = interaction.channel
     if channel:
       cats_str = ", ".join(view.selected_categories)
-      jours_str = ", ".join(view.selected_jours)
+
+      # Tri chronologique des jours selon la config de la course
+      ordre_jours_ref = view.course_data.get("jours", [])
+      jours_tires = sorted(
+          view.selected_jours,
+          key=lambda x: (
+              ordre_jours_ref.index(x) if x in ordre_jours_ref else 99
+          ),
+      )
+      jours_str = ", ".join(jours_tires)
+
+      # Tri chronologique des créneaux selon la config de la course
+      ordre_creneaux_ref = view.course_data.get("creneaux", [])
+      creneaux_tires = sorted(
+          view.selected_creneaux,
+          key=lambda x: (
+              ordre_creneaux_ref.index(x) if x in ordre_creneaux_ref else 99
+          ),
+      )
       creneaux_str = "\n".join(
-          [f"• **{c}** ➔ **{view.pilote}**" for c in view.selected_creneaux]
+          [f"• **{c}** ➔ **{view.pilote}**" for c in creneaux_tires]
       )
 
       embed = discord.Embed(
@@ -231,7 +249,6 @@ class ClearButton(discord.ui.Button):
     view: DispoView = self.view
     config_data = load_json(CONFIG_FILE, {})
 
-    # Supprimer le pilote de toutes les courses / catégories / jours / créneaux
     for c_key, c_data in config_data.items():
       if isinstance(c_data, dict):
         for sub_k, sub_v in list(c_data.items()):
