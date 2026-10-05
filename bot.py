@@ -17,7 +17,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-CONFIG_FILE = "config_course.json"  # Mets ici le nom exact de ton fichier de configuration des courses
+CONFIG_FILE = "config_course.json"
 CHAMP_FILE = "config_championnat.json"
 DRIVERS_FILE = "drivers.json"
 
@@ -114,6 +114,7 @@ class DispoView(discord.ui.View):
       self.add_item(ItemButton(creneau, "creneau"))
 
     self.add_item(ConfirmButton())
+    self.add_item(ClearButton())
 
 
 class ItemButton(discord.ui.Button):
@@ -217,18 +218,20 @@ class ConfirmButton(discord.ui.Button):
       await channel.send(embed=embed)
 
 
-# --- COMMANDE SLASH DISPO ---
-@bot.tree.command(
-    name="dispo", description="Indiquer ses disponibilités pour une course"
-)
-@app_commands.describe(
-    pilote="Sélectionne ton nom (ou 🗑️ Effacer mes dispos)",
-    course="Nom de la course",
-)
-async def dispo(interaction: discord.Interaction, pilote: str, course: str):
-  config_data = load_json(CONFIG_FILE, {})
+class ClearButton(discord.ui.Button):
 
-  if pilote == "🗑️ Effacer mes dispos":
+  def __init__(self):
+    super().__init__(
+        label="🗑️ Effacer mes dispos",
+        style=discord.ButtonStyle.danger,
+        row=4,
+    )
+
+  async def callback(self, interaction: discord.Interaction):
+    view: DispoView = self.view
+    config_data = load_json(CONFIG_FILE, {})
+
+    # Supprimer le pilote de toutes les courses / catégories / jours / créneaux
     for c_key, c_data in config_data.items():
       if isinstance(c_data, dict):
         for sub_k, sub_v in list(c_data.items()):
@@ -236,19 +239,30 @@ async def dispo(interaction: discord.Interaction, pilote: str, course: str):
             for day_k, day_v in list(sub_v.items()):
               if isinstance(day_v, dict):
                 for slot_k, slot_pilotes in list(day_v.items()):
-                  if (
-                      isinstance(slot_pilotes, list)
-                      and interaction.user.display_name in slot_pilotes
-                  ):
-                    slot_pilotes.remove(interaction.user.display_name)
+                  if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
+                    slot_pilotes.remove(view.pilote)
 
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
       json.dump(config_data, f, indent=4, ensure_ascii=False)
 
-    await interaction.response.send_message(
-        "🗑️ Tes disponibilités ont été effacées avec succès.", ephemeral=True
+    for child in view.children:
+      child.disabled = True
+
+    await interaction.response.edit_message(
+        content="🗑️ **Tes disponibilités ont été entièrement effacées avec succès !**",
+        view=view,
     )
-    return
+
+
+# --- COMMANDE SLASH DISPO ---
+@bot.tree.command(
+    name="dispo", description="Indiquer ses disponibilités pour une course"
+)
+@app_commands.describe(
+    pilote="Sélectionne ton nom", course="Nom de la course"
+)
+async def dispo(interaction: discord.Interaction, pilote: str, course: str):
+  config_data = load_json(CONFIG_FILE, {})
 
   if course not in config_data:
     await interaction.response.send_message(
@@ -260,7 +274,8 @@ async def dispo(interaction: discord.Interaction, pilote: str, course: str):
   view = DispoView(pilote=pilote, course=course, course_data=config_data[course])
   await interaction.response.send_message(
       f"🎛️ **Pilote : {pilote}** | Course : **{course}**\nClique sur les"
-      " éléments pour les activer (**vert**), puis clique sur **Valider** :",
+      " éléments pour les activer (**vert**), puis clique sur **Valider** ou"
+      " **Effacer** :",
       view=view,
       ephemeral=True,
   )
@@ -273,10 +288,9 @@ async def dispo_pilote_autocomplete(
   pilotes = load_json(DRIVERS_FILE, [])
   if not isinstance(pilotes, list):
     pilotes = []
-  options = ["🗑️ Effacer mes dispos"] + pilotes
   return [
       app_commands.Choice(name=p, value=p)
-      for p in options
+      for p in pilotes
       if current.lower() in p.lower()
   ][:25]
 
