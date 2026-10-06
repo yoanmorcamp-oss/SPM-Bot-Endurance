@@ -29,14 +29,9 @@ def load_json(filename, default):
   if os.path.exists(filename):
     with open(filename, "r", encoding="utf-8") as f:
       try:
-        data = json.load(f)
-        print(f"[DEBUG] Chargement réussi de {filename}")
-        return data
-      except json.JSONDecodeError as e:
-        print(f"[ERREUR JSON] Fichier {filename} mal formaté : {e}")
+        return json.load(f)
+      except json.JSONDecodeError:
         return default
-  else:
-    print(f"[ERREUR] Fichier introuvable : {filename}")
   return default
 
 
@@ -112,12 +107,15 @@ class DispoView(discord.ui.View):
     self.selected_jours = set()
     self.selected_creneaux = set()
 
+    # Boutons Catégories
     for cat in course_data.get("categories", []):
       self.add_item(ItemButton(cat, "cat"))
 
+    # Boutons Jours
     for jour in course_data.get("jours", []):
       self.add_item(ItemButton(jour, "jour"))
 
+    # Boutons Créneaux horaires
     for creneau in course_data.get("creneaux", []):
       self.add_item(ItemButton(creneau, "creneau"))
 
@@ -175,9 +173,14 @@ class ConfirmButton(discord.ui.Button):
   async def callback(self, interaction: discord.Interaction):
     view: DispoView = self.view
 
-    if not view.selected_categories or not view.selected_jours or not view.selected_creneaux:
+    if (
+        not view.selected_categories
+        or not view.selected_jours
+        or not view.selected_creneaux
+    ):
       await interaction.response.send_message(
-          "⚠️ Tu dois sélectionner au moins une catégorie, un jour et un créneau !",
+          "⚠️ Tu dois sélectionner au moins une catégorie, un jour et un"
+          " créneau horaire !",
           ephemeral=True,
       )
       return
@@ -189,12 +192,16 @@ class ConfirmButton(discord.ui.Button):
     for cat in view.selected_categories:
       if cat not in config[view.course]:
         config[view.course][cat] = {}
+
       for jour in view.selected_jours:
         if jour not in config[view.course][cat]:
           config[view.course][cat][jour] = {}
+
         for creneau in view.selected_creneaux:
           if creneau not in config[view.course][cat][jour]:
             config[view.course][cat][jour][creneau] = []
+
+          # Ajout du pilote s'il n'y est pas déjà pour ce jour et ce créneau
           if view.pilote not in config[view.course][cat][jour][creneau]:
             config[view.course][cat][jour][creneau].append(view.pilote)
 
@@ -207,36 +214,38 @@ class ConfirmButton(discord.ui.Button):
         content="✅ **Disponibilités enregistrées avec succès !**", view=view
     )
 
+    # Envoi du message automatique récapitulatif dans le salon public avec groupement des pilotes
     channel = interaction.channel
     if channel:
       cats_str = ", ".join(view.selected_categories)
 
-      ordre_jours_ref = view.course_data.get("jours", [])
-      jours_tires = sorted(
-          view.selected_jours,
-          key=lambda x: (
-              ordre_jours_ref.index(x) if x in ordre_jours_ref else 99
-          ),
-      )
-      jours_str = ", ".join(jours_tires)
+      lignes_recap = []
+      course_data_actuelle = config.get(view.course, {})
 
-      ordre_creneaux_ref = view.course_data.get("creneaux", [])
-      creneaux_tires = sorted(
-          view.selected_creneaux,
-          key=lambda x: (
-              ordre_creneaux_ref.index(x) if x in ordre_creneaux_ref else 99
-          ),
-      )
-      creneaux_str = "\n".join(
-          [f"• **{c}** ➔ **{view.pilote}**" for c in creneaux_tires]
+      for cat in view.selected_categories:
+        cat_dict = course_data_actuelle.get(cat, {})
+        for jour, creneaux_dict in cat_dict.items():
+          for creneau, pilotes_list in creneaux_dict.items():
+            if pilotes_list:
+              pilotes_str = ", ".join(pilotes_list)
+              lignes_recap.append(
+                  f"• **{jour} - {creneau}** ({cat}) ➔ {pilotes_str}"
+              )
+
+      recap_texte = (
+          "\n".join(lignes_recap)
+          if lignes_recap
+          else "Aucun créneau enregistré."
       )
 
       embed = discord.Embed(
-          title=f"🏎️ Planning - {view.course}",
+          title=f"🏎️ Mise à jour des disponibilités — {view.course}",
           description=(
-              f"📅 **{jours_str}**\nCatégorie : **{cats_str}**\n{creneaux_str}"
+              f"Le pilote **{view.pilote}** vient de mettre à jour ses"
+              f" choix !\nCatégorie(s) : **{cats_str}**\n\n**Planning"
+              f" actuel :**\n{recap_texte}"
           ),
-          color=discord.Color.blue(),
+          color=discord.Color.green(),
       )
       await channel.send(embed=embed)
 
@@ -320,16 +329,12 @@ async def dispo_pilote_autocomplete(
   try:
     data = load_json(DRIVERS_FILE, [])
     pilotes = []
-
-    # Gère si le JSON est une liste ou un dictionnaire contenant une liste
     if isinstance(data, list):
       pilotes = data
     elif isinstance(data, dict):
       for val in data.values():
         if isinstance(val, list):
           pilotes.extend(val)
-
-    print(f"[DEBUG AUTOCOMPLETE PILOTE] Pilotes trouvés : {pilotes}")
 
     return [
         app_commands.Choice(name=str(p), value=str(p))
@@ -359,6 +364,7 @@ async def dispo_course_autocomplete(
     print(f"Erreur dans l'autocomplétion course : {e}")
     return []
 
+
 @bot.event
 async def on_ready():
   if not "RappelChampionnat" in bot.cogs:
@@ -366,16 +372,14 @@ async def on_ready():
 
   print(f"Bot connecté en tant que {bot.user} !")
   try:
-    # Remplace TON_ID_DE_SERVEUR_DISCORD par l'ID numérique de ton serveur
-    # (Clic droit sur le nom de ton serveur en haut à gauche -> Copier l'ID)
-    GUILD_ID = discord.Object(id=1222994281334177842)  # <--- Mets ton ID ici
+    # Mets l'ID de ton serveur Discord ici pour une synchro instantanée
+    GUILD_ID = discord.Object(id=123456789012345678)  # <--- ID DU SERVEUR
 
     bot.tree.copy_global_to(guild=GUILD_ID)
     synced = await bot.tree.sync(guild=GUILD_ID)
     print(f"Commandes slash synchronisées sur le serveur : {len(synced)}")
   except Exception as e:
     print(e)
-
 
 
 bot.run(os.getenv("DISCORD_TOKEN"))
