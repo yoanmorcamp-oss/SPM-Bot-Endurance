@@ -172,4 +172,56 @@ class ConfirmButton(discord.ui.Button):
 
     if not view.selected_categories or not view.selected_jours or not view.selected_creneaux:
       await interaction.response.send_message(
-          "⚠️ Tu dois
+          "⚠️ Tu dois sélectionner au moins une catégorie, un jour et un créneau !",
+          ephemeral=True,
+      )
+      return
+
+    config = load_json(CONFIG_FILE, {})
+    if view.course not in config:
+      config[view.course] = {}
+
+    for cat in view.selected_categories:
+      if cat not in config[view.course]:
+        config[view.course][cat] = {}
+      for jour in view.selected_jours:
+        if jour not in config[view.course][cat]:
+          config[view.course][cat][jour] = {}
+        for creneau in view.selected_creneaux:
+          if creneau not in config[view.course][cat][jour]:
+            config[view.course][cat][jour][creneau] = []
+          if view.pilote not in config[view.course][cat][jour][creneau]:
+            config[view.course][cat][jour][creneau].append(view.pilote)
+
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+      json.dump(config, f, indent=4, ensure_ascii=False)
+
+    for child in view.children:
+      child.disabled = True
+    await interaction.response.edit_message(
+        content="✅ **Disponibilités enregistrées avec succès !**", view=view
+    )
+
+    channel = interaction.channel
+    if channel:
+      cats_str = ", ".join(view.selected_categories)
+
+      # Tri chronologique des jours selon la config de la course
+      ordre_jours_ref = view.course_data.get("jours", [])
+      jours_tires = sorted(
+          view.selected_jours,
+          key=lambda x: (
+              ordre_jours_ref.index(x) if x in ordre_jours_ref else 99
+          ),
+      )
+      jours_str = ", ".join(jours_tires)
+
+      # Tri chronologique des créneaux selon la config de la course
+      ordre_creneaux_ref = view.course_data.get("creneaux", [])
+      creneaux_tires = sorted(
+          view.selected_creneaux,
+          key=lambda x: (
+              ordre_creneaux_ref.index(x) if x in ordre_creneaux_ref else 99
+          ),
+      )
+      creneaux_str = "\n".join
