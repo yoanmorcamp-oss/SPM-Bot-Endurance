@@ -30,7 +30,7 @@ def load_json(filename, default):
     with open(filename, "r", encoding="utf-8") as f:
       try:
         data = json.load(f)
-        print(f"[DEBUG] Chargement réussi de {filename} : {data}")
+        print(f"[DEBUG] Chargement réussi de {filename}")
         return data
       except json.JSONDecodeError as e:
         print(f"[ERREUR JSON] Fichier {filename} mal formaté : {e}")
@@ -318,9 +318,19 @@ async def dispo_pilote_autocomplete(
     interaction: discord.Interaction, current: str
 ):
   try:
-    pilotes = load_json(DRIVERS_FILE, [])
-    if not isinstance(pilotes, list):
-      pilotes = []
+    data = load_json(DRIVERS_FILE, [])
+    pilotes = []
+
+    # Gère si le JSON est une liste ou un dictionnaire contenant une liste
+    if isinstance(data, list):
+      pilotes = data
+    elif isinstance(data, dict):
+      for val in data.values():
+        if isinstance(val, list):
+          pilotes.extend(val)
+
+    print(f"[DEBUG AUTOCOMPLETE PILOTE] Pilotes trouvés : {pilotes}")
+
     return [
         app_commands.Choice(name=str(p), value=str(p))
         for p in pilotes
