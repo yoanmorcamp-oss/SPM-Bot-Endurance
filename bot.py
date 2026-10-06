@@ -29,9 +29,14 @@ def load_json(filename, default):
   if os.path.exists(filename):
     with open(filename, "r", encoding="utf-8") as f:
       try:
-        return json.load(f)
-      except json.JSONDecodeError:
+        data = json.load(f)
+        print(f"[DEBUG] Chargement réussi de {filename} : {data}")
+        return data
+      except json.JSONDecodeError as e:
+        print(f"[ERREUR JSON] Fichier {filename} mal formaté : {e}")
         return default
+  else:
+    print(f"[ERREUR] Fichier introuvable : {filename}")
   return default
 
 
@@ -222,4 +227,140 @@ class ConfirmButton(discord.ui.Button):
               ordre_creneaux_ref.index(x) if x in ordre_creneaux_ref else 99
           ),
       )
-      creneaux_
+      creneaux_str = "\n".join(
+          [f"• **{c}** ➔ **{view.pilote}**" for c in creneaux_tires]
+      )
+
+      embed = discord.Embed(
+          title=f"🏎️ Planning - {view.course}",
+          description=(
+              f"📅 **{jours_str}**\nCatégorie : **{cats_str}**\n{creneaux_str}"
+          ),
+          color=discord.Color.blue(),
+      )
+      await channel.send(embed=embed)
+
+
+class ClearButton(discord.ui.Button):
+
+  def __init__(self):
+    super().__init__(
+        label="🗑️ Effacer mes dispos",
+        style=discord.ButtonStyle.danger,
+        row=4,
+    )
+
+  async def callback(self, interaction: discord.Interaction):
+    view: DispoView = self.view
+    config_data = load_json(CONFIG_FILE, {})
+
+    for c_key, c_data in config_data.items():
+      if isinstance(c_data, dict):
+        for sub_k, sub_v in list(c_data.items()):
+          if isinstance(sub_v, dict):
+            for day_k, day_v in list(sub_v.items()):
+              if isinstance(day_v, dict):
+                for slot_k, slot_pilotes in list(day_v.items()):
+                  if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
+                    slot_pilotes.remove(view.pilote)
+
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+      json.dump(config_data, f, indent=4, ensure_ascii=False)
+
+    for child in view.children:
+      child.disabled = True
+
+    await interaction.response.edit_message(
+        content="🗑️ **Tes disponibilités ont été entièrement effacées avec succès !**",
+        view=view,
+    )
+
+    embed = discord.Embed(
+        title=f"🗑️ Planning mis à jour — {view.course}",
+        description=(
+            f"Le pilote **{view.pilote}** a **effacé toutes ses"
+            " disponibilités** pour cette course."
+        ),
+        color=discord.Color.red(),
+    )
+    await interaction.followup.send(embed=embed)
+
+
+# --- COMMANDE SLASH DISPO ---
+@bot.tree.command(
+    name="dispo", description="Indiquer ses disponibilités pour une course"
+)
+@app_commands.describe(
+    pilote="Sélectionne ton nom", course="Nom de la course"
+)
+async def dispo(interaction: discord.Interaction, pilote: str, course: str):
+  config_data = load_json(CONFIG_FILE, {})
+
+  if course not in config_data:
+    await interaction.response.send_message(
+        f"⚠️ La course **{course}** est introuvable dans la configuration.",
+        ephemeral=True,
+    )
+    return
+
+  view = DispoView(pilote=pilote, course=course, course_data=config_data[course])
+  await interaction.response.send_message(
+      f"🎛️ **Pilote : {pilote}** | Course : **{course}**\nClique sur les"
+      " éléments pour les activer (**vert**), puis clique sur **Valider** ou"
+      " **Effacer** :",
+      view=view,
+      ephemeral=True,
+  )
+
+
+@dispo.autocomplete("pilote")
+async def dispo_pilote_autocomplete(
+    interaction: discord.Interaction, current: str
+):
+  try:
+    pilotes = load_json(DRIVERS_FILE, [])
+    if not isinstance(pilotes, list):
+      pilotes = []
+    return [
+        app_commands.Choice(name=str(p), value=str(p))
+        for p in pilotes
+        if current.lower() in str(p).lower()
+    ][:25]
+  except Exception as e:
+    print(f"Erreur dans l'autocomplétion pilote : {e}")
+    return []
+
+
+@dispo.autocomplete("course")
+async def dispo_course_autocomplete(
+    interaction: discord.Interaction, current: str
+):
+  try:
+    course_config = load_json(CONFIG_FILE, {})
+    if not isinstance(course_config, dict):
+      course_config = {}
+    courses = list(course_config.keys())
+    return [
+        app_commands.Choice(name=str(c), value=str(c))
+        for c in courses
+        if current.lower() in str(c).lower()
+    ][:25]
+  except Exception as e:
+    print(f"Erreur dans l'autocomplétion course : {e}")
+    return []
+
+
+@bot.event
+async def on_ready():
+  if not "RappelChampionnat" in bot.cogs:
+    await bot.add_cog(RappelChampionnat(bot))
+
+  print(f"Bot connecté en tant que {bot.user} !")
+  try:
+    synced = await bot.tree.sync()
+    print(f"Commandes slash synchronisées : {len(synced)}")
+  except Exception as e:
+    print(e)
+
+
+bot.run(os.getenv("DISCORD_TOKEN"))
