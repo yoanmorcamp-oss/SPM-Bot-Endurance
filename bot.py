@@ -104,20 +104,19 @@ class DispoView(discord.ui.View):
     self.course_data = course_data
 
     self.selected_categories = set()
-    self.selected_jours = set()
-    self.selected_creneaux = set()
+    self.selected_creneaux = set()  # Stocke "Jour - Heure" (ex: "Samedi - 12h00")
 
     # Boutons Catégories
     for cat in course_data.get("categories", []):
       self.add_item(ItemButton(cat, "cat"))
 
-    # Boutons Jours
-    for jour in course_data.get("jours", []):
-      self.add_item(ItemButton(jour, "jour"))
-
-    # Boutons Créneaux horaires
-    for creneau in course_data.get("creneaux", []):
-      self.add_item(ItemButton(creneau, "creneau"))
+    # Boutons combinés Jour + Créneau horaire (ex: Samedi - 12h00)
+    jours = course_data.get("jours", [])
+    creneaux = course_data.get("creneaux", [])
+    for jour in jours:
+      for creneau in creneaux:
+        label_btn = f"{jour} - {creneau}"
+        self.add_item(ItemButton(label_btn, "creneau"))
 
     self.add_item(ConfirmButton())
     self.add_item(ClearButton())
@@ -140,14 +139,6 @@ class ItemButton(discord.ui.Button):
         self.style = discord.ButtonStyle.secondary
       else:
         view.selected_categories.add(self.label)
-        self.style = discord.ButtonStyle.success
-
-    elif self.group == "jour":
-      if self.label in view.selected_jours:
-        view.selected_jours.remove(self.label)
-        self.style = discord.ButtonStyle.secondary
-      else:
-        view.selected_jours.add(self.label)
         self.style = discord.ButtonStyle.success
 
     elif self.group == "creneau":
@@ -173,14 +164,9 @@ class ConfirmButton(discord.ui.Button):
   async def callback(self, interaction: discord.Interaction):
     view: DispoView = self.view
 
-    if (
-        not view.selected_categories
-        or not view.selected_jours
-        or not view.selected_creneaux
-    ):
+    if not view.selected_categories or not view.selected_creneaux:
       await interaction.response.send_message(
-          "⚠️ Tu dois sélectionner au moins une catégorie, un jour et un"
-          " créneau horaire !",
+          "⚠️ Tu dois sélectionner au moins une catégorie et un créneau horaire !",
           ephemeral=True,
       )
       return
@@ -193,17 +179,21 @@ class ConfirmButton(discord.ui.Button):
       if cat not in config[view.course]:
         config[view.course][cat] = {}
 
-      for jour in view.selected_jours:
+      for item_creneau in view.selected_creneaux:
+        # Découpage propre de "Jour - Heure"
+        if " - " in item_creneau:
+          jour, creneau = item_creneau.split(" - ", 1)
+        else:
+          jour, creneau = "Général", item_creneau
+
         if jour not in config[view.course][cat]:
           config[view.course][cat][jour] = {}
+        if creneau not in config[view.course][cat][jour]:
+          config[view.course][cat][jour][creneau] = []
 
-        for creneau in view.selected_creneaux:
-          if creneau not in config[view.course][cat][jour]:
-            config[view.course][cat][jour][creneau] = []
-
-          # Ajout du pilote s'il n'y est pas déjà pour ce jour et ce créneau
-          if view.pilote not in config[view.course][cat][jour][creneau]:
-            config[view.course][cat][jour][creneau].append(view.pilote)
+        # Ajout du pilote s'il n'y est pas déjà
+        if view.pilote not in config[view.course][cat][jour][creneau]:
+          config[view.course][cat][jour][creneau].append(view.pilote)
 
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
       json.dump(config, f, indent=4, ensure_ascii=False)
