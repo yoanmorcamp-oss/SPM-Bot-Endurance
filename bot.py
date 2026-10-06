@@ -359,7 +359,6 @@ async def dispo_course_autocomplete(
     print(f"Erreur dans l'autocomplétion course : {e}")
     return []
 
-
 @bot.event
 async def on_ready():
   if not "RappelChampionnat" in bot.cogs:
@@ -367,10 +366,16 @@ async def on_ready():
 
   print(f"Bot connecté en tant que {bot.user} !")
   try:
-    synced = await bot.tree.sync()
-    print(f"Commandes slash synchronisées : {len(synced)}")
+    # Remplace TON_ID_DE_SERVEUR_DISCORD par l'ID numérique de ton serveur
+    # (Clic droit sur le nom de ton serveur en haut à gauche -> Copier l'ID)
+    GUILD_ID = discord.Object(id=1222994281334177842)  # <--- Mets ton ID ici
+
+    bot.tree.copy_global_to(guild=GUILD_ID)
+    synced = await bot.tree.sync(guild=GUILD_ID)
+    print(f"Commandes slash synchronisées sur le serveur : {len(synced)}")
   except Exception as e:
     print(e)
+
 
 
 bot.run(os.getenv("DISCORD_TOKEN"))
