@@ -104,13 +104,15 @@ class DispoView(discord.ui.View):
     self.course_data = course_data
 
     self.selected_categories = set()
-    self.selected_creneaux = set()  # Stocke "Jour - Heure" (ex: "Samedi - 12h00")
+    self.selected_creneaux = (
+        set()
+    )  # Stocke directement les choix ex: "Samedi - 12h00"
 
-    # Boutons Catégories
+    # 1. Boutons Catégories
     for cat in course_data.get("categories", []):
       self.add_item(ItemButton(cat, "cat"))
 
-    # Boutons combinés Jour + Créneau horaire (ex: Samedi - 12h00)
+    # 2. Boutons combinés Jour + Créneau (ex: "Samedi - 12h00")
     jours = course_data.get("jours", [])
     creneaux = course_data.get("creneaux", [])
     for jour in jours:
@@ -180,7 +182,7 @@ class ConfirmButton(discord.ui.Button):
         config[view.course][cat] = {}
 
       for item_creneau in view.selected_creneaux:
-        # Découpage propre de "Jour - Heure"
+        # Découpage propre de "Jour - Heure" (ex: "Samedi - 12h00")
         if " - " in item_creneau:
           jour, creneau = item_creneau.split(" - ", 1)
         else:
@@ -191,7 +193,7 @@ class ConfirmButton(discord.ui.Button):
         if creneau not in config[view.course][cat][jour]:
           config[view.course][cat][jour][creneau] = []
 
-        # Ajout du pilote s'il n'y est pas déjà
+        # Ajout du pilote s'il n'y est pas déjà pour ce créneau précis
         if view.pilote not in config[view.course][cat][jour][creneau]:
           config[view.course][cat][jour][creneau].append(view.pilote)
 
