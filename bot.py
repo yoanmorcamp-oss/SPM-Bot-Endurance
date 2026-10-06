@@ -7,6 +7,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+# Configuration des chemins absolus pour éviter les problèmes de fichiers introuvables sur l'hébergeur
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+CONFIG_FILE = os.path.join(BASE_DIR, "config_course.json")
+CHAMP_FILE = os.path.join(BASE_DIR, "config_championnat.json")
+DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
+
 # Configuration des identifiants (IDs de ton salon et de ton rôle)
 SALON_ENTRAINEMENT_ID = 1525497448305393705
 ROLE_PILOTE_SPM_ID = 1222995895000371290
@@ -16,10 +23,6 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-CONFIG_FILE = "config_course.json"
-CHAMP_FILE = "config_championnat.json"
-DRIVERS_FILE = "drivers.json"
 
 
 def load_json(filename, default):
@@ -32,7 +35,7 @@ def load_json(filename, default):
   return default
 
 
-# --- PETIT SERVEUR WEB (POUR RAILWAY) ---
+# --- PETIT SERVEUR WEB ---
 class DummyHandler(BaseHTTPRequestHandler):
 
   def do_GET(self):
@@ -101,62 +104,56 @@ class DispoView(discord.ui.View):
     self.course_data = course_data
 
     self.selected_categories = set()
-    self.selected_slots = set()  # Stocke les tuples (jour, creneau)
+    self.selected_jours = set()
+    self.selected_creneaux = set()
 
-    # 1. Boutons pour les catégories
     for cat in course_data.get("categories", []):
-      self.add_item(CategoryButton(cat))
+      self.add_item(ItemButton(cat, "cat"))
 
-    # 2. Boutons combinés Jour + Créneau précis
     for jour in course_data.get("jours", []):
-      for creneau in course_data.get("creneaux", []):
-        self.add_item(SlotButton(jour, creneau))
+      self.add_item(ItemButton(jour, "jour"))
+
+    for creneau in course_data.get("creneaux", []):
+      self.add_item(ItemButton(creneau, "creneau"))
 
     self.add_item(ConfirmButton())
     self.add_item(ClearButton())
 
 
-class CategoryButton(discord.ui.Button):
+class ItemButton(discord.ui.Button):
 
-  def __init__(self, cat: str):
+  def __init__(self, label: str, group: str):
     super().__init__(
-        label=cat, style=discord.ButtonStyle.secondary, custom_id=f"cat_{cat}"
+        label=label, style=discord.ButtonStyle.secondary, custom_id=f"{group}_{label}"
     )
-    self.cat = cat
+    self.group = group
 
   async def callback(self, interaction: discord.Interaction):
     view: DispoView = self.view
-    if self.cat in view.selected_categories:
-      view.selected_categories.remove(self.cat)
-      self.style = discord.ButtonStyle.secondary
-    else:
-      view.selected_categories.add(self.cat)
-      self.style = discord.ButtonStyle.success
-    await interaction.response.edit_message(view=view)
 
+    if self.group == "cat":
+      if self.label in view.selected_categories:
+        view.selected_categories.remove(self.label)
+        self.style = discord.ButtonStyle.secondary
+      else:
+        view.selected_categories.add(self.label)
+        self.style = discord.ButtonStyle.success
 
-class SlotButton(discord.ui.Button):
+    elif self.group == "jour":
+      if self.label in view.selected_jours:
+        view.selected_jours.remove(self.label)
+        self.style = discord.ButtonStyle.secondary
+      else:
+        view.selected_jours.add(self.label)
+        self.style = discord.ButtonStyle.success
 
-  def __init__(self, jour: str, creneau: str):
-    label = f"{jour} - {creneau}"
-    super().__init__(
-        label=label,
-        style=discord.ButtonStyle.secondary,
-        custom_id=f"slot_{jour}_{creneau}",
-    )
-    self.jour = jour
-    self.creneau = creneau
-
-  async def callback(self, interaction: discord.Interaction):
-    view: DispoView = self.view
-    pair = (self.jour, self.creneau)
-
-    if pair in view.selected_slots:
-      view.selected_slots.remove(pair)
-      self.style = discord.ButtonStyle.secondary
-    else:
-      view.selected_slots.add(pair)
-      self.style = discord.ButtonStyle.success
+    elif self.group == "creneau":
+      if self.label in view.selected_creneaux:
+        view.selected_creneaux.remove(self.label)
+        self.style = discord.ButtonStyle.secondary
+      else:
+        view.selected_creneaux.add(self.label)
+        self.style = discord.ButtonStyle.success
 
     await interaction.response.edit_message(view=view)
 
@@ -173,257 +170,6 @@ class ConfirmButton(discord.ui.Button):
   async def callback(self, interaction: discord.Interaction):
     view: DispoView = self.view
 
-    if not view.selected_categories or not view.selected_slots:
+    if not view.selected_categories or not view.selected_jours or not view.selected_creneaux:
       await interaction.response.send_message(
-          "⚠️ Tu dois sélectionner au moins une **catégorie** et un"
-          " **créneau horaire précis** !",
-          ephemeral=True,
-      )
-      return
-
-    config = load_json(CONFIG_FILE, {})
-    if view.course not in config:
-      config[view.course] = {}
-
-    # 1. Nettoyage strict des anciennes dispos de ce pilote pour cette course
-    for cat_k, cat_v in list(config[view.course].items()):
-      if isinstance(cat_v, dict):
-        for day_k, day_v in list(cat_v.items()):
-          if isinstance(day_v, dict):
-            for slot_k, slot_pilotes in list(day_v.items()):
-              if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
-                slot_pilotes.remove(view.pilote)
-
-    # 2. Enregistrement des nouvelles paires (jour, creneau) sélectionnées
-    for cat in view.selected_categories:
-      if cat not in config[view.course]:
-        config[view.course][cat] = {}
-      for jour, creneau in view.selected_slots:
-        if jour not in config[view.course][cat]:
-          config[view.course][cat][jour] = {}
-        if creneau not in config[view.course][cat][jour]:
-          config[view.course][cat][jour][creneau] = []
-        if view.pilote not in config[view.course][cat][jour][creneau]:
-          config[view.course][cat][jour][creneau].append(view.pilote)
-
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-      json.dump(config, f, indent=4, ensure_ascii=False)
-
-    for child in view.children:
-      child.disabled = True
-    await interaction.response.edit_message(
-        content="✅ **Disponibilités enregistrées avec succès !**", view=view
-    )
-
-    # --- ENVOI DU RÉCAPITULATIF GLOBAL TRIÉ DANS LE SALON ---
-    channel = interaction.channel
-    if channel:
-      ordre_jours_ref = view.course_data.get("jours", [])
-      ordre_creneaux_ref = view.course_data.get("creneaux", [])
-
-      embed = discord.Embed(
-          title=f"📊 Récapitulatif Global des Dispos — {view.course}",
-          description=(
-              f"Mise à jour effectuée par **{view.pilote}**"
-          ),
-          color=discord.Color.blue(),
-      )
-
-      course_data = config[view.course]
-      for cat, jours_dict in course_data.items():
-        cat_text = ""
-        # Tri des jours selon l'ordre de la config
-        jours_tries = sorted(
-            jours_dict.keys(),
-            key=lambda x: (
-                ordre_jours_ref.index(x) if x in ordre_jours_ref else 99
-            ),
-        )
-
-        for jour in jours_tries:
-          creneaux_dict = jours_dict[jour]
-          cat_text += f"📅 **{jour}**\n"
-
-          # Tri des créneaux selon l'ordre de la config
-          creneaux_tries = sorted(
-              creneaux_dict.keys(),
-              key=lambda x: (
-                  ordre_creneaux_ref.index(x) if x in ordre_creneaux_ref else 99
-              ),
-          )
-
-          for creneau in creneaux_tries:
-            pilotes = creneaux_dict[creneau]
-            if pilotes:
-              # Tri alphabétique des pilotes pour plus de propreté
-              pilotes_tries = sorted(pilotes)
-              pilotes_str = ", ".join(pilotes_tries)
-              cat_text += f" • `{creneau}` ➔ {pilotes_str}\n"
-            else:
-              cat_text += f" • `{creneau}` ➔ *Personne*\n"
-          cat_text += "\n"
-
-        if cat_text:
-          embed.add_field(
-              name=f"🏎️ Catégorie : {cat}", value=cat_text, inline=False
-          )
-
-      await channel.send(embed=embed)
-
-
-class ClearButton(discord.ui.Button):
-
-  def __init__(self):
-    super().__init__(
-        label="🗑️ Effacer mes dispos",
-        style=discord.ButtonStyle.danger,
-        row=4,
-    )
-
-  async def callback(self, interaction: discord.Interaction):
-    view: DispoView = self.view
-    config_data = load_json(CONFIG_FILE, {})
-
-    for c_key, c_data in config_data.items():
-      if c_key == view.course:
-        if isinstance(c_data, dict):
-          for sub_k, sub_v in list(c_data.items()):
-            if isinstance(sub_v, dict):
-              for day_k, day_v in list(sub_v.items()):
-                if isinstance(day_v, dict):
-                  for slot_k, slot_pilotes in list(day_v.items()):
-                    if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
-                      slot_pilotes.remove(view.pilote)
-
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-      json.dump(config_data, f, indent=4, ensure_ascii=False)
-
-    for child in view.children:
-      child.disabled = True
-
-    await interaction.response.edit_message(
-        content="🗑️ **Tes disponibilités ont été entièrement effacées avec succès !**",
-        view=view,
-    )
-
-    # --- ENVOI DU RÉCAPITULATIF APRÈS EFFACEMENT ---
-    channel = interaction.channel
-    if channel:
-      ordre_jours_ref = view.course_data.get("jours", [])
-      ordre_creneaux_ref = view.course_data.get("creneaux", [])
-
-      embed = discord.Embed(
-          title=f"📊 Récapitulatif Global des Dispos — {view.course}",
-          description=(
-              f"Mise à jour : **{view.pilote}** a effacé ses disponibilités."
-          ),
-          color=discord.Color.red(),
-      )
-
-      course_data = config_data[view.course]
-      for cat, jours_dict in course_data.items():
-        cat_text = ""
-        jours_tries = sorted(
-            jours_dict.keys(),
-            key=lambda x: (
-                ordre_jours_ref.index(x) if x in ordre_jours_ref else 99
-            ),
-        )
-
-        for jour in jours_tries:
-          creneaux_dict = jours_dict[jour]
-          cat_text += f"📅 **{jour}**\n"
-
-          creneaux_tries = sorted(
-              creneaux_dict.keys(),
-              key=lambda x: (
-                  ordre_creneaux_ref.index(x) if x in ordre_creneaux_ref else 99
-              ),
-          )
-
-          for creneau in creneaux_tries:
-            pilotes = creneaux_dict[creneau]
-            if pilotes:
-              pilotes_tries = sorted(pilotes)
-              pilotes_str = ", ".join(pilotes_tries)
-              cat_text += f" • `{creneau}` ➔ {pilotes_str}\n"
-            else:
-              cat_text += f" • `{creneau}` ➔ *Personne*\n"
-          cat_text += "\n"
-
-        if cat_text:
-          embed.add_field(
-              name=f"🏎️ Catégorie : {cat}", value=cat_text, inline=False
-          )
-
-      await channel.send(embed=embed)
-
-
-# --- COMMANDE SLASH DISPO ---
-@bot.tree.command(
-    name="dispo", description="Indiquer ses disponibilités pour une course"
-)
-@app_commands.describe(
-    pilote="Sélectionne ton nom", course="Nom de la course"
-)
-async def dispo(interaction: discord.Interaction, pilote: str, course: str):
-  config_data = load_json(CONFIG_FILE, {})
-
-  if course not in config_data:
-    await interaction.response.send_message(
-        f"⚠️ La course **{course}** est introuvable dans la configuration.",
-        ephemeral=True,
-    )
-    return
-
-  view = DispoView(pilote=pilote, course=course, course_data=config_data[course])
-  await interaction.response.send_message(
-      f"🎛️ **Pilote : {pilote}** | Course : **{course}**\nSélectionne tes"
-      " catégories et créneaux précis, puis clique sur **Valider mes dispos**"
-      " :",
-      view=view,
-      ephemeral=True,
-  )
-
-
-@dispo.autocomplete("pilote")
-async def dispo_pilote_autocomplete(
-    interaction: discord.Interaction, current: str
-):
-  pilotes = load_json(DRIVERS_FILE, [])
-  if not isinstance(pilotes, list):
-    pilotes = []
-  return [
-      app_commands.Choice(name=p, value=p)
-      for p in pilotes
-      if current.lower() in p.lower()
-  ][:25]
-
-
-@dispo.autocomplete("course")
-async def dispo_course_autocomplete(
-    interaction: discord.Interaction, current: str
-):
-  course_config = load_json(CONFIG_FILE, {})
-  courses = list(course_config.keys())
-  return [
-      app_commands.Choice(name=c, value=c)
-      for c in courses
-      if current.lower() in c.lower()
-  ][:25]
-
-
-@bot.event
-async def on_ready():
-  if not "RappelChampionnat" in bot.cogs:
-    await bot.add_cog(RappelChampionnat(bot))
-
-  print(f"Bot connecté en tant que {bot.user} !")
-  try:
-    synced = await bot.tree.sync()
-    print(f"Commandes slash synchronisées : {len(synced)}")
-  except Exception as e:
-    print(e)
-
-
-bot.run(os.getenv("DISCORD_TOKEN"))
+          "⚠️ Tu dois
