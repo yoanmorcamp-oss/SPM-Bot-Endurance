@@ -14,7 +14,7 @@ CONFIG_FILE = os.path.join(BASE_DIR, "config_course.json")
 CHAMP_FILE = os.path.join(BASE_DIR, "config_championnat.json")
 DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 
-# Configuration des identifiants
+# Configuration des identifiants (Remplace avec tes vrais identifiants)
 SALON_ENTRAINEMENT_ID = 1525497448305393705
 ROLE_PILOTE_SPM_ID = 1222995895000371290
 
@@ -35,7 +35,7 @@ def load_json(filename, default):
   return default
 
 
-# --- PETIT SERVEUR WEB ---
+# --- SERVEUR WEB INTEGRÉ (Pour éviter la mise en veille Railway / Render) ---
 class DummyHandler(BaseHTTPRequestHandler):
 
   def do_GET(self):
@@ -244,7 +244,7 @@ class ConfirmButton(discord.ui.Button):
     if view.course not in config:
       config[view.course] = {}
 
-    # Si le pilote était marqué absent, on l'enlève de la liste des absents
+    # Retrait de la liste des absents si le pilote était marqué absent
     if (
         "absents" in config[view.course]
         and view.pilote in config[view.course]["absents"]
@@ -299,7 +299,7 @@ class AbsentButton(discord.ui.Button):
     if view.course not in config:
       config[view.course] = {}
 
-    # Nettoyage : Si le pilote avait des créneaux validés, on le retire des créneaux
+    # Retrait du pilote de tous les créneaux validés
     c_data = config[view.course]
     for sub_k, sub_v in list(c_data.items()):
       if isinstance(sub_v, dict):
@@ -309,7 +309,7 @@ class AbsentButton(discord.ui.Button):
               if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
                 slot_pilotes.remove(view.pilote)
 
-    # Ajout dans la liste des absents
+    # Ajout du pilote dans la liste des absents
     if "absents" not in config[view.course]:
       config[view.course]["absents"] = []
 
@@ -398,19 +398,11 @@ class PublicRegisterView(discord.ui.View):
       )
       return
 
-    # Récupération automatique du pseudo Discord du membre
+    # Pseudo Discord récupéré automatiquement
     pilote_pseudo = interaction.user.display_name
 
-    # Recherche du dernier message épinglé pour mise à jour en direct
-    public_message = None
-    try:
-      async for message in interaction.channel.history(limit=20):
-        if message.author == bot.user and message.pinned:
-          if self.course in message.embeds[0].title:
-            public_message = message
-            break
-    except Exception:
-      pass
+    # Le message où se trouve le bouton est directement transmis pour édition
+    public_message = interaction.message
 
     view = DispoView(
         pilote=pilote_pseudo,
@@ -444,14 +436,23 @@ async def publier_planning(interaction: discord.Interaction, course: str):
   embed = generate_planning_embed(course)
   view = PublicRegisterView(course)
 
+  # Réponse initiale pour accuser réception de la commande
   await interaction.response.send_message(
-      "📌 **Message de planning publié et épinglé avec succès !**", ephemeral=True
+      f"📌 **Planning publié pour {course} !**", ephemeral=True
   )
+
+  # Envoi du message récapitulatif dans le salon
   msg = await interaction.channel.send(embed=embed, view=view)
+
   try:
     await msg.pin()
-  except Exception:
-    pass
+  except Exception as e:
+    print(f"Erreur lors du pin du message : {e}")
+
+  # Sauvegarde de l'ID du message public dans config_course.json
+  config_data[course]["message_id"] = msg.id
+  with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+    json.dump(config_data, f, indent=4, ensure_ascii=False)
 
 
 @publier_planning.autocomplete("course")
@@ -469,30 +470,113 @@ async def publier_course_autocomplete(
         if current.lower() in str(c).lower()
     ][:25]
   except Exception as e:
-    print(f"Erreur dans l'autocomplétion course : {e}")
+    print(f"Erreur autocomplétion course : {e}")
     return []
 
 
+# --- COMMANDE DISPO (AVEC RECHERCHE DE MESSAGE PAR ID) ---
+@bot.tree.command(
+    name="dispo", description="Indiquer ses disponibilités pour une course"
+)
+@app_commands.describe(
+    pilote="Sélectionne ton nom", course="Nom de la course"
+)
+async def dispo(interaction: discord.Interaction, pilote: str, course: str):
+  config_data = load_json(CONFIG_FILE, {})
+
+  if course not in config_data:
+    await interaction.response.send_message(
+        f"⚠️ La course **{course}** est introuvable dans la configuration.",
+        ephemeral=True,
+    )
+    return
+
+  public_message = None
+  msg_id = config_data[course].get("message_id")
+  if msg_id:
+    try:
+      public_message = await interaction.channel.fetch_message(msg_id)
+    except Exception:
+      pass
+
+  view = DispoView(
+      pilote=pilote,
+      course=course,
+      course_data=config_data[course],
+      public_message=public_message,
+  )
+  await interaction.response.send_message(
+      f"🎛️ **Pilote : {pilote}** | Course : **{course}**\nFais tes choix"
+      " ci-dessous :",
+      view=view,
+      ephemeral=True,
+  )
+
+
+@dispo.autocomplete("pilote")
+async def dispo_pilote_autocomplete(
+    interaction: discord.Interaction, current: str
+):
+  try:
+    data = load_json(DRIVERS_FILE, [])
+    pilotes = []
+    if isinstance(data, list):
+      pilotes = data
+    elif isinstance(data, dict):
+      for val in data.values():
+        if isinstance(val, list):
+          pilotes.extend(val)
+
+    return [
+        app_commands.Choice(name=str(p), value=str(p))
+        for p in pilotes
+        if current.lower() in str(p).lower()
+    ][:25]
+  except Exception as e:
+    print(f"Erreur autocomplétion pilote : {e}")
+    return []
+
+
+@dispo.autocomplete("course")
+async def dispo_course_autocomplete(
+    interaction: discord.Interaction, current: str
+):
+  try:
+    course_config = load_json(CONFIG_FILE, {})
+    if not isinstance(course_config, dict):
+      course_config = {}
+    courses = list(course_config.keys())
+    return [
+        app_commands.Choice(name=str(c), value=str(c))
+        for c in courses
+        if current.lower() in str(c).lower()
+    ][:25]
+  except Exception as e:
+    print(f"Erreur autocomplétion course : {e}")
+    return []
+
+
+# --- INITIALISATION ET SYNCHRONISATION ---
 @bot.event
 async def on_ready():
   if not "RappelChampionnat" in bot.cogs:
     await bot.add_cog(RappelChampionnat(bot))
 
-  # Enregistrement persistant de la vue pour les boutons du message épinglé
-  # (permet de garder les boutons actifs même si le bot redémarre)
+  # Enregistrement des vues persistantes pour conserver les boutons fonctionnels après redémarrage
   courses_config = load_json(CONFIG_FILE, {})
   for course_name in courses_config.keys():
     bot.add_view(PublicRegisterView(course_name))
 
   print(f"Bot connecté en tant que {bot.user} !")
   try:
-    GUILD_ID = discord.Object(id=1222994281334177842)  # <--- ID DU SERVEUR
+    # ⚠️ N'OUBLIE PAS DE METTRE TON VRAI ID DE SERVEUR ICI EN CHIFFRES :
+    GUILD_ID = discord.Object(id=1222994281334177842)
 
     bot.tree.copy_global_to(guild=GUILD_ID)
     synced = await bot.tree.sync(guild=GUILD_ID)
     print(f"Commandes slash synchronisées sur le serveur : {len(synced)}")
   except Exception as e:
-    print(e)
+    print(f"Erreur de synchronisation des commandes : {e}")
 
 
 bot.run(os.getenv("DISCORD_TOKEN"))
