@@ -486,7 +486,7 @@ async def on_ready():
 
   print(f"Bot connecté en tant que {bot.user} !")
   try:
-    GUILD_ID = discord.Object(id=123456789012345678)  # <--- ID DU SERVEUR
+    GUILD_ID = discord.Object(id=1222994281334177842)  # <--- ID DU SERVEUR
 
     bot.tree.copy_global_to(guild=GUILD_ID)
     synced = await bot.tree.sync(guild=GUILD_ID)
