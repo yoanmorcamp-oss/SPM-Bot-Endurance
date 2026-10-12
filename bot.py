@@ -492,32 +492,27 @@ async def publier_course_autocomplete(
     return []
 
 
-# --- COMMANDE DISPO (OPTIONNELLE) ---
-@bot.tree.command(
-    name="dispo", description="Indiquer ses disponibilités pour une course"
-)
-@app_commands.describe(
-    pilote="Sélectionne ton nom", course="Nom de la course"
-)
-async def dispo(interaction: discord.Interaction, pilote: str, course: str):
-  config_data = load_json(CONFIG_FILE, {})
+# --- INITIALISATION ET SYNCHRONISATION ---
+@bot.event
+async def on_ready():
+  if not "RappelChampionnat" in bot.cogs:
+    await bot.add_cog(RappelChampionnat(bot))
 
-  if course not in config_data:
-    await interaction.response.send_message(
-        f"⚠️ La course **{course}** est introuvable dans la configuration.",
-        ephemeral=True,
-    )
-    return
+  # Enregistrement des vues persistantes pour conserver les boutons fonctionnels après redémarrage
+  courses_config = load_json(CONFIG_FILE, {})
+  for course_name in courses_config.keys():
+    bot.add_view(PublicRegisterView(course_name))
 
-  public_message = None
-  msg_id = config_data[course].get("message_id")
-  if msg_id:
-    try:
-      public_message = await interaction.channel.fetch_message(msg_id)
-    except Exception:
-      pass
+  print(f"Bot connecté en tant que {bot.user} !")
+  try:
+    # ⚠️ N'OUBLIE PAS DE METTRE TON VRAI ID DE SERVEUR ICI EN CHIFFRES :
+    GUILD_ID = discord.Object(id=123456789012345678)
 
-  view = DispoView(
-      pilote=pilote,
-      course=course,
-      course_data=
+    bot.tree.copy_global_to(guild=GUILD_ID)
+    synced = await bot.tree.sync(guild=GUILD_ID)
+    print(f"Commandes slash synchronisées sur le serveur : {len(synced)}")
+  except Exception as e:
+    print(f"Erreur de synchronisation des commandes : {e}")
+
+
+bot.run(os.getenv("DISCORD_TOKEN"))
