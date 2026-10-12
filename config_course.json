@@ -1,7 +1,8 @@
 {
-  "10H Road Atlanta": {
+  "4H DE Portimao": {
     "categories": [
-      "HYPERCAR",
+      "LMP2 ELMS",
+	  "LMP3",
       "LMGT3"
     ],
     "jours": [
@@ -10,10 +11,10 @@
       "Dimanche"
     ],
     "creneaux": [
-      "4h00",
-      "11h00",
-      "17h00",
-      "23h00"
+      "00h00",
+      "04h00",
+      "14h00",
+      "19h00"
     ]
   }
 }
