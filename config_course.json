@@ -1,20 +1,35 @@
 {
-  "4H DE Portimao": {
-    "categories": [
-      "LMP2 ELMS",
-	  "LMP3",
-      "LMGT3"
-    ],
-    "jours": [
-      "Vendredi",
-      "Samedi",
-      "Dimanche"
-    ],
-    "creneaux": [
-      "00h00",
-      "04h00",
-      "14h00",
-      "19h00"
-    ]
-  }
+    "4H DE Portimao": {
+        "categories": [
+            "LMP2 ELMS",
+            "LMP3",
+            "LMGT3"
+        ],
+        "jours": [
+            "Vendredi",
+            "Samedi",
+            "Dimanche"
+        ],
+        "creneaux": [
+            "00h00",
+            "04h00",
+            "14h00",
+            "19h00"
+        ]
+    },
+    "24H du Mans": {
+        "categories": [
+            "HYPERCAR",
+            "LMP2 WEC",
+            "LMGT3"
+        ],
+        "jours": [
+            "Vendredi",
+            "Samedi",
+            "Dimanche"
+        ],
+        "creneaux": [
+            "Inconnu pour le moment"
+        ]
+    }
 }
