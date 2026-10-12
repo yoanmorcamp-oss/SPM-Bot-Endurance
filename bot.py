@@ -192,4 +192,332 @@ class DispoView(discord.ui.View):
     self.selected_creneaux = set()
 
     # Boutons Catégories
-    for cat in course_data
+    for cat in course_data.get("categories", []):
+      self.add_item(ItemButton(cat, "cat"))
+
+    # Boutons Créneaux combinés Jour + Heure
+    jours = course_data.get("jours", [])
+    creneaux = course_data.get("creneaux", [])
+    for jour in jours:
+      for creneau in creneaux:
+        label_btn = f"{jour} - {creneau}"
+        self.add_item(ItemButton(label_btn, "creneau"))
+
+    # Boutons d'action
+    self.add_item(ConfirmButton())
+    self.add_item(AbsentButton())
+    self.add_item(ClearButton())
+
+
+class ItemButton(discord.ui.Button):
+
+  def __init__(self, label: str, group: str):
+    super().__init__(
+        label=label, style=discord.ButtonStyle.secondary, custom_id=f"{group}_{label}"
+    )
+    self.group = group
+
+  async def callback(self, interaction: discord.Interaction):
+    view: DispoView = self.view
+
+    if self.group == "cat":
+      if self.label in view.selected_categories:
+        view.selected_categories.remove(self.label)
+        self.style = discord.ButtonStyle.secondary
+      else:
+        view.selected_categories.add(self.label)
+        self.style = discord.ButtonStyle.success
+
+    elif self.group == "creneau":
+      if self.label in view.selected_creneaux:
+        view.selected_creneaux.remove(self.label)
+        self.style = discord.ButtonStyle.secondary
+      else:
+        view.selected_creneaux.add(self.label)
+        self.style = discord.ButtonStyle.success
+
+    await interaction.response.edit_message(view=view)
+
+
+class ConfirmButton(discord.ui.Button):
+
+  def __init__(self):
+    super().__init__(
+        label="✅ Valider mes dispos",
+        style=discord.ButtonStyle.primary,
+        row=4,
+    )
+
+  async def callback(self, interaction: discord.Interaction):
+    view: DispoView = self.view
+
+    if not view.selected_categories or not view.selected_creneaux:
+      await interaction.response.send_message(
+          "⚠️ Tu dois sélectionner au moins une catégorie et un créneau horaire !",
+          ephemeral=True,
+      )
+      return
+
+    config = load_json(CONFIG_FILE, {})
+    if view.course not in config:
+      config[view.course] = {}
+
+    # Retrait de la liste des absents si le pilote était marqué absent
+    if (
+        "absents" in config[view.course]
+        and view.pilote in config[view.course]["absents"]
+    ):
+      config[view.course]["absents"].remove(view.pilote)
+
+    for cat in view.selected_categories:
+      if cat not in config[view.course]:
+        config[view.course][cat] = {}
+
+      for item_creneau in view.selected_creneaux:
+        if " - " in item_creneau:
+          jour, creneau = item_creneau.split(" - ", 1)
+        else:
+          jour, creneau = "Général", item_creneau
+
+        if jour not in config[view.course][cat]:
+          config[view.course][cat][jour] = {}
+        if creneau not in config[view.course][cat][jour]:
+          config[view.course][cat][jour][creneau] = []
+
+        if view.pilote not in config[view.course][cat][jour][creneau]:
+          config[view.course][cat][jour][creneau].append(view.pilote)
+
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+      json.dump(config, f, indent=4, ensure_ascii=False)
+
+    for child in view.children:
+      child.disabled = True
+    await interaction.response.edit_message(
+        content="✅ **Disponibilités enregistrées avec succès !**", view=view
+    )
+
+    if view.public_message:
+      new_embed = generate_planning_embed(view.course)
+      await view.public_message.edit(embed=new_embed)
+
+
+class AbsentButton(discord.ui.Button):
+
+  def __init__(self):
+    super().__init__(
+        label="❌ Signaler mon absence",
+        style=discord.ButtonStyle.secondary,
+        row=4,
+    )
+
+  async def callback(self, interaction: discord.Interaction):
+    view: DispoView = self.view
+    config = load_json(CONFIG_FILE, {})
+
+    if view.course not in config:
+      config[view.course] = {}
+
+    # Retrait du pilote de tous les créneaux validés
+    c_data = config[view.course]
+    for sub_k, sub_v in list(c_data.items()):
+      if isinstance(sub_v, dict):
+        for day_k, day_v in list(sub_v.items()):
+          if isinstance(day_v, dict):
+            for slot_k, slot_pilotes in list(day_v.items()):
+              if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
+                slot_pilotes.remove(view.pilote)
+
+    # Ajout du pilote dans la liste des absents
+    if "absents" not in config[view.course]:
+      config[view.course]["absents"] = []
+
+    if view.pilote not in config[view.course]["absents"]:
+      config[view.course]["absents"].append(view.pilote)
+
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+      json.dump(config, f, indent=4, ensure_ascii=False)
+
+    for child in view.children:
+      child.disabled = True
+
+    await interaction.response.edit_message(
+        content=f"❌ **Absence enregistrée pour {view.pilote}.**", view=view
+    )
+
+    if view.public_message:
+      new_embed = generate_planning_embed(view.course)
+      await view.public_message.edit(embed=new_embed)
+
+
+class ClearButton(discord.ui.Button):
+
+  def __init__(self):
+    super().__init__(
+        label="🗑️ Effacer mes choix",
+        style=discord.ButtonStyle.danger,
+        row=4,
+    )
+
+  async def callback(self, interaction: discord.Interaction):
+    view: DispoView = self.view
+    config_data = load_json(CONFIG_FILE, {})
+
+    if view.course in config_data:
+      c_data = config_data[view.course]
+      # Retrait des créneaux
+      for sub_k, sub_v in list(c_data.items()):
+        if isinstance(sub_v, dict):
+          for day_k, day_v in list(sub_v.items()):
+            if isinstance(day_v, dict):
+              for slot_k, slot_pilotes in list(day_v.items()):
+                if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
+                  slot_pilotes.remove(view.pilote)
+
+      # Retrait des absents
+      if "absents" in c_data and view.pilote in c_data["absents"]:
+        c_data["absents"].remove(view.pilote)
+
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+      json.dump(config_data, f, indent=4, ensure_ascii=False)
+
+    for child in view.children:
+      child.disabled = True
+
+    await interaction.response.edit_message(
+        content="🗑️ **Tes choix ont été entièrement effacés !**", view=view
+    )
+
+    if view.public_message:
+      new_embed = generate_planning_embed(view.course)
+      await view.public_message.edit(embed=new_embed)
+
+
+# --- BOUTON PERSISTANT SUR LE MESSAGE PUBLIC ---
+class PublicRegisterView(discord.ui.View):
+
+  def __init__(self, course: str):
+    super().__init__(timeout=None)
+    self.course = course
+
+  @discord.ui.button(
+      label="📝 Indiquer / Modifier mes dispos",
+      style=discord.ButtonStyle.success,
+      custom_id="persistent_dispo_button",
+  )
+  async def register_button_callback(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    config_data = load_json(CONFIG_FILE, {})
+
+    if self.course not in config_data:
+      await interaction.response.send_message(
+          f"⚠️ La course **{self.course}** est introuvable.",
+          ephemeral=True,
+      )
+      return
+
+    # Pseudo Discord récupéré automatiquement
+    pilote_pseudo = interaction.user.display_name
+
+    # Le message où se trouve le bouton est directement transmis pour édition
+    public_message = interaction.message
+
+    view = DispoView(
+        pilote=pilote_pseudo,
+        course=self.course,
+        course_data=config_data[self.course],
+        public_message=public_message,
+    )
+
+    await interaction.response.send_message(
+        f"🎛️ **Pilote : {pilote_pseudo}** | Course : **{self.course}**\nFais"
+        " tes choix ci-dessous :",
+        view=view,
+        ephemeral=True,
+    )
+
+
+# --- COMMANDE PUBLIER / PLANNING ---
+@bot.tree.command(
+    name="publier_planning",
+    description="Publie et épingle le message officiel de planning pour une course",
+)
+@app_commands.describe(course="Nom de la course")
+async def publier_planning(interaction: discord.Interaction, course: str):
+  config_data = load_json(CONFIG_FILE, {})
+  if course not in config_data:
+    await interaction.response.send_message(
+        f"⚠️ La course **{course}** est introuvable.", ephemeral=True
+    )
+    return
+
+  embed = generate_planning_embed(course)
+  view = PublicRegisterView(course)
+
+  # Réponse initiale pour accuser réception de la commande
+  await interaction.response.send_message(
+      f"📌 **Planning publié pour {course} !**", ephemeral=True
+  )
+
+  # Envoi du message récapitulatif dans le salon
+  msg = await interaction.channel.send(embed=embed, view=view)
+
+  try:
+    await msg.pin()
+  except Exception as e:
+    print(f"Erreur lors du pin du message : {e}")
+
+  # Sauvegarde de l'ID du message public dans config_course.json
+  config_data[course]["message_id"] = msg.id
+  with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+    json.dump(config_data, f, indent=4, ensure_ascii=False)
+
+
+@publier_planning.autocomplete("course")
+async def publier_course_autocomplete(
+    interaction: discord.Interaction, current: str
+):
+  try:
+    course_config = load_json(CONFIG_FILE, {})
+    if not isinstance(course_config, dict):
+      return []
+    courses = list(course_config.keys())
+    return [
+        app_commands.Choice(name=str(c), value=str(c))
+        for c in courses
+        if current.lower() in str(c).lower()
+    ][:25]
+  except Exception as e:
+    print(f"Erreur autocomplétion course : {e}")
+    return []
+
+
+# --- COMMANDE DISPO (OPTIONNELLE) ---
+@bot.tree.command(
+    name="dispo", description="Indiquer ses disponibilités pour une course"
+)
+@app_commands.describe(
+    pilote="Sélectionne ton nom", course="Nom de la course"
+)
+async def dispo(interaction: discord.Interaction, pilote: str, course: str):
+  config_data = load_json(CONFIG_FILE, {})
+
+  if course not in config_data:
+    await interaction.response.send_message(
+        f"⚠️ La course **{course}** est introuvable dans la configuration.",
+        ephemeral=True,
+    )
+    return
+
+  public_message = None
+  msg_id = config_data[course].get("message_id")
+  if msg_id:
+    try:
+      public_message = await interaction.channel.fetch_message(msg_id)
+    except Exception:
+      pass
+
+  view = DispoView(
+      pilote=pilote,
+      course=course,
+      course_data=
