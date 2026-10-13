@@ -121,7 +121,10 @@ def generate_planning_embed(course: str):
       "Vendredi": 5,
       "Samedi": 6,
       "Dimanche": 7,
-      "Général": 8,
+      "24 octobre": 8,
+      "25 octobre": 9,
+      "26 octobre": 10,
+      "Général": 11,
   }
 
   # 1. Traitement des catégories
@@ -392,49 +395,53 @@ class ClearButton(discord.ui.Button):
       await view.public_message.edit(embed=new_embed)
 
 
-# --- BOUTON PERSISTANT SUR LE MESSAGE PUBLIC ---
+# --- BOUTON PERSISTANT SUR LE MESSAGE PUBLIC (AVEC CUSTOM_ID UNIQUE PAR COURSE) ---
 class PublicRegisterView(discord.ui.View):
 
   def __init__(self, course: str):
     super().__init__(timeout=None)
     self.course = course
 
-  @discord.ui.button(
-      label="📝 Indiquer / Modifier mes dispos",
-      style=discord.ButtonStyle.success,
-      custom_id="persistent_dispo_button",
-  )
-  async def register_button_callback(
-      self, interaction: discord.Interaction, button: discord.ui.Button
-  ):
-    config_data = load_json(CONFIG_FILE, {})
+    # On crée un bouton avec un custom_id unique par course pour éviter les conflits
+    safe_course_id = course.replace(" ", "_").lower()
+    self.add_item(
+        discord.ui.Button(
+            label="📝 Indiquer / Modifier mes dispos",
+            style=discord.ButtonStyle.success,
+            custom_id=f"persistent_dispo_{safe_course_id}",
+        )
+    )
 
-    if self.course not in config_data:
+  async def interaction_check(self, interaction: discord.Interaction) -> bool:
+    # Intercepte le clic sur le bouton persistant de cette course spécifique
+    if interaction.data.get("custom_id") == f"persistent_dispo_{self.course.replace(' ', '_').lower()}":
+      config_data = load_json(CONFIG_FILE, {})
+
+      if self.course not in config_data:
+        await interaction.response.send_message(
+            f"⚠️ La course **{self.course}** est introuvable.",
+            ephemeral=True,
+        )
+        return False
+
+      pilote_pseudo = interaction.user.display_name
+      public_message = interaction.message
+
+      view = DispoView(
+          pilote=pilote_pseudo,
+          course=self.course,
+          course_data=config_data[self.course],
+          public_message=public_message,
+      )
+
       await interaction.response.send_message(
-          f"⚠️ La course **{self.course}** est introuvable.",
+          f"🎛️ **Pilote : {pilote_pseudo}** | Course : **{self.course}**\nFais"
+          " tes choix ci-dessous :",
+          view=view,
           ephemeral=True,
       )
-      return
-
-    # Pseudo Discord récupéré automatiquement
-    pilote_pseudo = interaction.user.display_name
-
-    # Le message où se trouve le bouton est directement transmis pour édition
-    public_message = interaction.message
-
-    view = DispoView(
-        pilote=pilote_pseudo,
-        course=self.course,
-        course_data=config_data[self.course],
-        public_message=public_message,
-    )
-
-    await interaction.response.send_message(
-        f"🎛️ **Pilote : {pilote_pseudo}** | Course : **{self.course}**\nFais"
-        " tes choix ci-dessous :",
-        view=view,
-        ephemeral=True,
-    )
+      return False
+    return True
 
 
 # --- COMMANDE PUBLIER / PLANNING ---
@@ -498,7 +505,7 @@ async def on_ready():
   if not "RappelChampionnat" in bot.cogs:
     await bot.add_cog(RappelChampionnat(bot))
 
-  # Enregistrement des vues persistantes pour conserver les boutons fonctionnels après redémarrage
+  # Enregistrement des vues persistantes pour chaque course avec leur ID unique
   courses_config = load_json(CONFIG_FILE, {})
   for course_name in courses_config.keys():
     bot.add_view(PublicRegisterView(course_name))
