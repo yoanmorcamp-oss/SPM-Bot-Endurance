@@ -24,11 +24,12 @@
             "LMGT3"
         ],
         "jours": [
-            "24 octobre",
-            "25 octobre"
+            "23 octobre",
+            "24 octobre"
         ],
         "creneaux": [
-            "Inconnu pour le moment"
+            "13h00",
+            "15h30"
         ]
     }
 }
