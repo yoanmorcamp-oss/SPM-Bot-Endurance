@@ -395,14 +395,13 @@ class ClearButton(discord.ui.Button):
       await view.public_message.edit(embed=new_embed)
 
 
-# --- BOUTON PERSISTANT SUR LE MESSAGE PUBLIC (AVEC CUSTOM_ID UNIQUE PAR COURSE) ---
+# --- BOUTON PERSISTANT SUR LE MESSAGE PUBLIC (AVEC ACCUSÉ DE RÉCEPTION RAPIDE) ---
 class PublicRegisterView(discord.ui.View):
 
   def __init__(self, course: str):
     super().__init__(timeout=None)
     self.course = course
 
-    # On crée un bouton avec un custom_id unique par course pour éviter les conflits
     safe_course_id = course.replace(" ", "_").lower()
     self.add_item(
         discord.ui.Button(
@@ -413,12 +412,14 @@ class PublicRegisterView(discord.ui.View):
     )
 
   async def interaction_check(self, interaction: discord.Interaction) -> bool:
-    # Intercepte le clic sur le bouton persistant de cette course spécifique
-    if interaction.data.get("custom_id") == f"persistent_dispo_{self.course.replace(' ', '_').lower()}":
-      config_data = load_json(CONFIG_FILE, {})
+    expected_custom_id = f"persistent_dispo_{self.course.replace(' ', '_').lower()}"
+    if interaction.data.get("custom_id") == expected_custom_id:
+      # Accusé de réception immédiat pour éviter le timeout de Discord
+      await interaction.response.defer(ephemeral=True)
 
+      config_data = load_json(CONFIG_FILE, {})
       if self.course not in config_data:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"⚠️ La course **{self.course}** est introuvable.",
             ephemeral=True,
         )
@@ -434,7 +435,7 @@ class PublicRegisterView(discord.ui.View):
           public_message=public_message,
       )
 
-      await interaction.response.send_message(
+      await interaction.followup.send(
           f"🎛️ **Pilote : {pilote_pseudo}** | Course : **{self.course}**\nFais"
           " tes choix ci-dessous :",
           view=view,
@@ -449,77 +450,4 @@ class PublicRegisterView(discord.ui.View):
     name="publier_planning",
     description="Publie et épingle le message officiel de planning pour une course",
 )
-@app_commands.describe(course="Nom de la course")
-async def publier_planning(interaction: discord.Interaction, course: str):
-  config_data = load_json(CONFIG_FILE, {})
-  if course not in config_data:
-    await interaction.response.send_message(
-        f"⚠️ La course **{course}** est introuvable.", ephemeral=True
-    )
-    return
-
-  embed = generate_planning_embed(course)
-  view = PublicRegisterView(course)
-
-  # Réponse initiale pour accuser réception de la commande
-  await interaction.response.send_message(
-      f"📌 **Planning publié pour {course} !**", ephemeral=True
-  )
-
-  # Envoi du message récapitulatif dans le salon
-  msg = await interaction.channel.send(embed=embed, view=view)
-
-  try:
-    await msg.pin()
-  except Exception as e:
-    print(f"Erreur lors du pin du message : {e}")
-
-  # Sauvegarde de l'ID du message public dans config_course.json
-  config_data[course]["message_id"] = msg.id
-  with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-    json.dump(config_data, f, indent=4, ensure_ascii=False)
-
-
-@publier_planning.autocomplete("course")
-async def publier_course_autocomplete(
-    interaction: discord.Interaction, current: str
-):
-  try:
-    course_config = load_json(CONFIG_FILE, {})
-    if not isinstance(course_config, dict):
-      return []
-    courses = list(course_config.keys())
-    return [
-        app_commands.Choice(name=str(c), value=str(c))
-        for c in courses
-        if current.lower() in str(c).lower()
-    ][:25]
-  except Exception as e:
-    print(f"Erreur autocomplétion course : {e}")
-    return []
-
-
-# --- INITIALISATION ET SYNCHRONISATION ---
-@bot.event
-async def on_ready():
-  if not "RappelChampionnat" in bot.cogs:
-    await bot.add_cog(RappelChampionnat(bot))
-
-  # Enregistrement des vues persistantes pour chaque course avec leur ID unique
-  courses_config = load_json(CONFIG_FILE, {})
-  for course_name in courses_config.keys():
-    bot.add_view(PublicRegisterView(course_name))
-
-  print(f"Bot connecté en tant que {bot.user} !")
-  try:
-    # ⚠️ N'OUBLIE PAS DE METTRE TON VRAI ID DE SERVEUR ICI EN CHIFFRES :
-    GUILD_ID = discord.Object(id=123456789012345678)
-
-    bot.tree.copy_global_to(guild=GUILD_ID)
-    synced = await bot.tree.sync(guild=GUILD_ID)
-    print(f"Commandes slash synchronisées sur le serveur : {len(synced)}")
-  except Exception as e:
-    print(f"Erreur de synchronisation des commandes : {e}")
-
-
-bot.run(os.getenv("DISCORD_TOKEN"))
+@app_commands.describe(course="Nom de la course
