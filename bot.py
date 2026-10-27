@@ -35,7 +35,7 @@ def load_json(filename, default):
   return default
 
 
-# --- SERVEUR WEB INTEGRÉ (Pour éviter la mise en veille Railway / Render) ---
+# --- SERVEUR WEB INTEGRÉ ---
 class DummyHandler(BaseHTTPRequestHandler):
 
   def do_GET(self):
@@ -94,7 +94,7 @@ class RappelChampionnat(commands.Cog):
     await self.bot.wait_until_ready()
 
 
-# --- FONCTION DE GÉNÉRATION DE L'EMBED PRINCIPAL (AVEC TRI CHRONOLOGIQUE) ---
+# --- FONCTION DE GÉNÉRATION DE L'EMBED PRINCIPAL ---
 def generate_planning_embed(course: str):
   config = load_json(CONFIG_FILE, {})
   course_data = config.get(course, {})
@@ -134,7 +134,6 @@ def generate_planning_embed(course: str):
     lignes_cat = []
 
     if isinstance(cat_content, dict):
-      # Tri des jours selon l'ordre chronologique
       jours_tries = sorted(
           cat_content.keys(), key=lambda j: ordre_jours.get(j, 99)
       )
@@ -176,7 +175,7 @@ def generate_planning_embed(course: str):
   return embed
 
 
-# --- INTERFACE INTERACTIVE DE SÉLECTION (PRIVÉE) ---
+# --- INTERFACE INTERACTIVE DE SÉLECTION ---
 class DispoView(discord.ui.View):
 
   def __init__(
@@ -199,7 +198,7 @@ class DispoView(discord.ui.View):
     for cat in course_data.get("categories", []):
       self.add_item(ItemButton(cat, "cat"))
 
-    # Boutons Créneaux : Gestion spécifique pour les 24H du Mans ou globale pour les autres
+    # Boutons Créneaux : Gestion spécifique pour les 24H du Mans ou globale
     if course == "24H du Mans":
       mapping_mans = {"23 octobre": "13h00", "24 octobre": "15h30"}
       for jour, creneau in mapping_mans.items():
@@ -263,7 +262,8 @@ class ConfirmButton(discord.ui.Button):
 
     if not view.selected_categories or not view.selected_creneaux:
       await interaction.response.send_message(
-          "⚠️ Tu dois sélectionner au moins une catégorie et un créneau horaire !",
+          "⚠️ Tu dois sélectionner au moins une catégorie et un créneau"
+          " horaire !",
           ephemeral=True,
       )
       return
@@ -272,16 +272,25 @@ class ConfirmButton(discord.ui.Button):
     if view.course not in config:
       config[view.course] = {}
 
-    # Retrait de la liste des absents si le pilote était marqué absent
-    if (
-        "absents" in config[view.course]
-        and view.pilote in config[view.course]["absents"]
-    ):
-      config[view.course]["absents"].remove(view.pilote)
+    c_data = config[view.course]
 
+    # --- NETTOYAGE PRÉALABLE DES ANCIENS CHOIX DU PILOTE ---
+    for sub_k, sub_v in list(c_data.items()):
+      if isinstance(sub_v, dict):
+        for day_k, day_v in list(sub_v.items()):
+          if isinstance(day_v, dict):
+            for slot_k, slot_pilotes in list(day_v.items()):
+              if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
+                slot_pilotes.remove(view.pilote)
+
+    # Retrait des absents
+    if "absents" in c_data and view.pilote in c_data["absents"]:
+      c_data["absents"].remove(view.pilote)
+
+    # --- ENREGISTREMENT DES NOUVEAUX CHOIX ---
     for cat in view.selected_categories:
-      if cat not in config[view.course]:
-        config[view.course][cat] = {}
+      if cat not in c_data:
+        c_data[cat] = {}
 
       for item_creneau in view.selected_creneaux:
         if " - " in item_creneau:
@@ -289,13 +298,13 @@ class ConfirmButton(discord.ui.Button):
         else:
           jour, creneau = "Général", item_creneau
 
-        if jour not in config[view.course][cat]:
-          config[view.course][cat][jour] = {}
-        if creneau not in config[view.course][cat][jour]:
-          config[view.course][cat][jour][creneau] = []
+        if jour not in c_data[cat]:
+          c_data[cat][jour] = {}
+        if creneau not in c_data[cat][jour]:
+          c_data[cat][jour][creneau] = []
 
-        if view.pilote not in config[view.course][cat][jour][creneau]:
-          config[view.course][cat][jour][creneau].append(view.pilote)
+        if view.pilote not in c_data[cat][jour][creneau]:
+          c_data[cat][jour][creneau].append(view.pilote)
 
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
       json.dump(config, f, indent=4, ensure_ascii=False)
@@ -327,8 +336,9 @@ class AbsentButton(discord.ui.Button):
     if view.course not in config:
       config[view.course] = {}
 
-    # Retrait du pilote de tous les créneaux validés
     c_data = config[view.course]
+
+    # Retrait du pilote de tous les créneaux validés
     for sub_k, sub_v in list(c_data.items()):
       if isinstance(sub_v, dict):
         for day_k, day_v in list(sub_v.items()):
@@ -338,11 +348,11 @@ class AbsentButton(discord.ui.Button):
                 slot_pilotes.remove(view.pilote)
 
     # Ajout du pilote dans la liste des absents
-    if "absents" not in config[view.course]:
-      config[view.course]["absents"] = []
+    if "absents" not in c_data:
+      c_data["absents"] = []
 
-    if view.pilote not in config[view.course]["absents"]:
-      config[view.course]["absents"].append(view.pilote)
+    if view.pilote not in c_data["absents"]:
+      c_data["absents"].append(view.pilote)
 
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
       json.dump(config, f, indent=4, ensure_ascii=False)
@@ -374,7 +384,6 @@ class ClearButton(discord.ui.Button):
 
     if view.course in config_data:
       c_data = config_data[view.course]
-      # Retrait des créneaux
       for sub_k, sub_v in list(c_data.items()):
         if isinstance(sub_v, dict):
           for day_k, day_v in list(sub_v.items()):
@@ -383,7 +392,6 @@ class ClearButton(discord.ui.Button):
                 if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
                   slot_pilotes.remove(view.pilote)
 
-      # Retrait des absents
       if "absents" in c_data and view.pilote in c_data["absents"]:
         c_data["absents"].remove(view.pilote)
 
@@ -402,7 +410,7 @@ class ClearButton(discord.ui.Button):
       await view.public_message.edit(embed=new_embed)
 
 
-# --- BOUTON PERSISTANT SUR LE MESSAGE PUBLIC (AVEC ACCUSÉ DE RÉCEPTION RAPIDE) ---
+# --- BOUTON PERSISTANT SUR LE MESSAGE PUBLIC ---
 class PublicRegisterView(discord.ui.View):
 
   def __init__(self, course: str):
@@ -421,7 +429,6 @@ class PublicRegisterView(discord.ui.View):
   async def interaction_check(self, interaction: discord.Interaction) -> bool:
     expected_custom_id = f"persistent_dispo_{self.course.replace(' ', '_').lower()}"
     if interaction.data.get("custom_id") == expected_custom_id:
-      # Accusé de réception immédiat pour éviter le timeout de Discord
       await interaction.response.defer(ephemeral=True)
 
       config_data = load_json(CONFIG_FILE, {})
@@ -469,12 +476,10 @@ async def publier_planning(interaction: discord.Interaction, course: str):
   embed = generate_planning_embed(course)
   view = PublicRegisterView(course)
 
-  # Réponse initiale pour accuser réception de la commande
   await interaction.response.send_message(
       f"📌 **Planning publié pour {course} !**", ephemeral=True
   )
 
-  # Envoi du message récapitulatif dans le salon
   msg = await interaction.channel.send(embed=embed, view=view)
 
   try:
@@ -482,7 +487,6 @@ async def publier_planning(interaction: discord.Interaction, course: str):
   except Exception as e:
     print(f"Erreur lors du pin du message : {e}")
 
-  # Sauvegarde de l'ID du message public dans config_course.json
   config_data[course]["message_id"] = msg.id
   with open(CONFIG_FILE, "w", encoding="utf-8") as f:
     json.dump(config_data, f, indent=4, ensure_ascii=False)
@@ -513,14 +517,12 @@ async def on_ready():
   if not "RappelChampionnat" in bot.cogs:
     await bot.add_cog(RappelChampionnat(bot))
 
-  # Enregistrement des vues persistantes pour chaque course avec leur ID unique
   courses_config = load_json(CONFIG_FILE, {})
   for course_name in courses_config.keys():
     bot.add_view(PublicRegisterView(course_name))
 
   print(f"Bot connecté en tant que {bot.user} !")
   try:
-    # ⚠️ N'OUBLIE PAS DE METTRE TON VRAI ID DE SERVEUR ICI EN CHIFFRES :
     GUILD_ID = discord.Object(id=123456789012345678)
 
     bot.tree.copy_global_to(guild=GUILD_ID)
