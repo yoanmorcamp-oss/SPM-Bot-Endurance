@@ -1,35 +1,20 @@
 {
-    "4H DE Portimao": {
+    "6h de Barcelone": {
         "categories": [
-            "LMP2 ELMS",
-            "LMP3",
-            "LMGT3"
+            "Hypercar",
+            "GT3"
         ],
         "jours": [
-            "Vendredi",
-            "Samedi",
-            "Dimanche"
+            "30 octobre",
+            "31 octobre",
+            "1er novembre"
         ],
         "creneaux": [
-            "00h00",
-            "04h00",
-            "14h00",
-            "19h00"
-        ]
-    },
-    "24H du Mans": {
-        "categories": [
-            "HYPERCAR",
-            "LMP2 WEC",
-            "LMGT3"
-        ],
-        "jours": [
-            "23 octobre",
-            "24 octobre"
-        ],
-        "creneaux": [
+            "03h00",
+            "08h00",
             "13h00",
-            "15h30"
+            "18h00",
+            "23h00"
         ]
     }
 }
