@@ -387,7 +387,7 @@ class ClearButton(discord.ui.Button):
       c_data = config_data[view.course]
       for sub_k, sub_v in list(c_data.items()):
         if isinstance(sub_v, dict):
-          for day_k, day_v in list(sub_v.items()):
+          for day_k, day_v in list(day_v.items()):
             if isinstance(day_v, dict):
               for slot_k, slot_pilotes in list(day_v.items()):
                 if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
@@ -470,8 +470,7 @@ async def publier_planning(interaction: discord.Interaction, course: str):
   config_data = load_json(CONFIG_FILE, {})
   if course not in config_data:
     await interaction.response.send_message(
-        f"⚠️ La course **{course}** est introuvable dans le fichier de"
-        " configuration.",
+        f"⚠️ La course **{course}** est introuvable dans la configuration.",
         ephemeral=True,
     )
     return
@@ -479,13 +478,13 @@ async def publier_planning(interaction: discord.Interaction, course: str):
   embed = generate_planning_embed(course)
   view = PublicRegisterView(course)
 
-  # Accusé de réception éphémère
+  # 1. Accusé de réception éphémère (pour toi seul)
   await interaction.response.send_message(
       f"📌 **Planning publié pour {course} !**", ephemeral=True
   )
 
-  # Envoi du message dans le salon/fil actuel
-  msg = await interaction.channel.send(embed=embed, view=view)
+  # 2. Envoi public du message avec le bouton dans le fil/salon actif via followup
+  msg = await interaction.followup.send(embed=embed, view=view)
 
   try:
     await msg.pin()
@@ -507,10 +506,7 @@ async def publier_course_autocomplete(
     if not isinstance(course_config, dict):
       return []
 
-    # Récupération de toutes les clés (noms des courses) du fichier JSON
     courses = list(course_config.keys())
-
-    # Filtrage selon ce que l'utilisateur tape
     choices = [
         app_commands.Choice(name=str(c), value=str(c))
         for c in courses
@@ -534,7 +530,6 @@ async def on_ready():
 
   print(f"Bot connecté en tant que {bot.user} !")
   try:
-    # Synchronisation globale des commandes slash
     synced = await bot.tree.sync()
     print(f"Commandes slash synchronisées globalement : {len(synced)}")
   except Exception as e:
