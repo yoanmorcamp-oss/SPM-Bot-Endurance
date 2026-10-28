@@ -16,10 +16,8 @@ DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 SALON_ENTRAINEMENT_ID = 1525497448305393705
 ROLE_PILOTE_SPM_ID = 1222995895000371290
 
-# --- CONFIGURATION DES INTENTS ---
+# --- CONFIGURATION DES INTENTS (Sécurisé sans privilèges superflus) ---
 intents = discord.Intents.default()
-intents.members = True
-intents.presences = True
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -426,8 +424,8 @@ class PublicRegisterView(discord.ui.View):
       pilote_pseudo = interaction.user.display_name
       view = DispoView(
           pilote=pilote_pseudo,
-            course=self.course,
-            course_data=config_data[self.course],
+          course=self.course,
+          course_data=config_data[self.course],
       )
 
       await interaction.followup.send(
