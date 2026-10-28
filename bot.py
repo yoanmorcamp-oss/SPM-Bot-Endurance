@@ -14,13 +14,13 @@ CONFIG_FILE = os.path.join(BASE_DIR, "config_course.json")
 CHAMP_FILE = os.path.join(BASE_DIR, "config_championnat.json")
 DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 
-# Configuration des identifiants (Remplace avec tes vrais identifiants)
+# Configuration des identifiants
 SALON_ENTRAINEMENT_ID = 1525497448305393705
 ROLE_PILOTE_SPM_ID = 1222995895000371290
 
+# Correction des intents pour éviter l'erreur PrivilegedIntentsRequired sur Render
 intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
+intents.message_content = True  # Nécessaire pour lire le contenu des messages si besoin
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -35,7 +35,7 @@ def load_json(filename, default):
   return default
 
 
-# --- SERVEUR WEB INTEGRÉ ---
+# --- SERVEUR WEB INTÉGRÉ (Pour UptimeRobot) ---
 class DummyHandler(BaseHTTPRequestHandler):
 
   def do_GET(self):
@@ -311,7 +311,6 @@ class ConfirmButton(discord.ui.Button):
         content="✅ **Disponibilités enregistrées avec succès !**", view=view
     )
 
-    # Repost en bas du fil pour qu'il soit toujours le dernier message
     if view.public_message:
       try:
         await view.public_message.delete()
