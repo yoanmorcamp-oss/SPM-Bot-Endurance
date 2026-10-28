@@ -18,12 +18,8 @@ DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 SALON_ENTRAINEMENT_ID = 1525497448305393705
 ROLE_PILOTE_SPM_ID = 1222995895000371290
 
-# --- CORRECTION RADICALE DES INTENTS ---
-# On définit uniquement les intents de base stricts pour éviter tout blocage
-intents = discord.Intents.none()
-intents.guilds = True
-intents.guild_messages = True
-intents.message_content = True
+# --- CONFIGURATION DES INTENTS (Standard sans privilèges superflus) ---
+intents = discord.Intents(guilds=True, guild_messages=True, message_content=True)
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -178,21 +174,46 @@ def generate_planning_embed(course: str):
   return embed
 
 
+# --- FONCTION UTILITAIRE POUR RAFRAÎCHIR LE PLANNING EN BAS DU SALON ---
+async def refresh_public_planning(interaction: discord.Interaction, course: str):
+  config = load_json(CONFIG_FILE, {})
+  if course not in config:
+    return
+
+  channel = interaction.channel
+  old_msg_id = config[course].get("message_id")
+
+  # Suppression de l'ancien message public s'il existe
+  if old_msg_id:
+    try:
+      old_msg = await channel.fetch_message(old_msg_id)
+      await old_msg.delete()
+    except Exception:
+      pass
+
+  # Envoi du nouveau message mis à jour tout en bas
+  embed = generate_planning_embed(course)
+  view = PublicRegisterView(course)
+  new_msg = await channel.send(embed=embed, view=view)
+
+  try:
+    await new_msg.pin()
+  except Exception as e:
+    print(f"Erreur lors du pin : {e}")
+
+  config[course]["message_id"] = new_msg.id
+  with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+    json.dump(config, f, indent=4, ensure_ascii=False)
+
+
 # --- INTERFACE INTERACTIVE DE SÉLECTION ---
 class DispoView(discord.ui.View):
 
-  def __init__(
-      self,
-      pilote: str,
-      course: str,
-      course_data: dict,
-      public_message: discord.Message = None,
-  ):
+  def __init__(self, pilote: str, course: str, course_data: dict):
     super().__init__(timeout=180)
     self.pilote = pilote
     self.course = course
     self.course_data = course_data
-    self.public_message = public_message
 
     self.selected_categories = set()
     self.selected_creneaux = set()
@@ -310,17 +331,13 @@ class ConfirmButton(discord.ui.Button):
 
     for child in view.children:
       child.disabled = True
+
     await interaction.response.edit_message(
         content="✅ **Disponibilités enregistrées avec succès !**", view=view
     )
 
-    if view.public_message:
-      try:
-        new_embed = generate_planning_embed(view.course)
-        new_view = PublicRegisterView(view.course)
-        await view.public_message.edit(embed=new_embed, view=new_view)
-      except Exception as e:
-        print(f"Erreur lors de la mise à jour du message public : {e}")
+    # Actualisation instantanée du message public en bas du salon
+    await refresh_public_planning(interaction, view.course)
 
 
 class AbsentButton(discord.ui.Button):
@@ -365,13 +382,7 @@ class AbsentButton(discord.ui.Button):
         content=f"❌ **Absence enregistrée pour {view.pilote}.**", view=view
     )
 
-    if view.public_message:
-      try:
-        new_embed = generate_planning_embed(view.course)
-        new_view = PublicRegisterView(view.course)
-        await view.public_message.edit(embed=new_embed, view=new_view)
-      except Exception as e:
-        print(f"Erreur lors de la mise à jour du message public : {e}")
+    await refresh_public_planning(interaction, view.course)
 
 
 class ClearButton(discord.ui.Button):
@@ -410,13 +421,7 @@ class ClearButton(discord.ui.Button):
         content="🗑️ **Tes choix ont été entièrement effacés !**", view=view
     )
 
-    if view.public_message:
-      try:
-        new_embed = generate_planning_embed(view.course)
-        new_view = PublicRegisterView(view.course)
-        await view.public_message.edit(embed=new_embed, view=new_view)
-      except Exception as e:
-        print(f"Erreur lors de la mise à jour du message public : {e}")
+    await refresh_public_planning(interaction, view.course)
 
 
 # --- BOUTON PERSISTANT SUR LE MESSAGE PUBLIC ---
@@ -449,13 +454,11 @@ class PublicRegisterView(discord.ui.View):
         return False
 
       pilote_pseudo = interaction.user.display_name
-      public_message = interaction.message
 
       view = DispoView(
           pilote=pilote_pseudo,
           course=self.course,
           course_data=config_data[self.course],
-          public_message=public_message,
       )
 
       await interaction.followup.send(
