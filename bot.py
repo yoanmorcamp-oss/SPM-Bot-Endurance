@@ -403,8 +403,111 @@ class PublicRegisterView(discord.ui.View):
     self.course = course
 
     safe_course_id = course.replace(" ", "_").lower()
-    self.add_item(
-        discord.ui.Button(
-            label="📝 Indiquer / Modifier mes dispos",
-            style=discord.ButtonStyle.success,
-            custom_id
+    button = discord.ui.Button(
+        label="📝 Indiquer / Modifier mes dispos",
+        style=discord.ButtonStyle.success,
+        custom_id=f"persistent_dispo_{safe_course_id}",
+    )
+    self.add_item(button)
+
+  async def interaction_check(self, interaction: discord.Interaction) -> bool:
+    expected_custom_id = f"persistent_dispo_{self.course.replace(' ', '_').lower()}"
+    if interaction.data.get("custom_id") == expected_custom_id:
+      await interaction.response.defer(ephemeral=True)
+
+      config_data = load_json(CONFIG_FILE, {})
+      if self.course not in config_data:
+        await interaction.followup.send(
+            f"⚠️ La course **{self.course}** est introuvable.", ephemeral=True
+        )
+        return False
+
+      pilote_pseudo = interaction.user.display_name
+      view = DispoView(
+          pilote=pilote_pseudo,
+          course=self.course,
+          course_data=config_data[self.course],
+      )
+
+      await interaction.followup.send(
+          f"🎛️ **Pilote : {pilote_pseudo}** | Course : **{self.course}**\nFais"
+          " tes choix ci-dessous :",
+          view=view,
+          ephemeral=True,
+      )
+      return False
+    return True
+
+
+@bot.tree.command(
+    name="publier_planning",
+    description="Publie et épingle le message officiel de planning pour une course",
+)
+@app_commands.describe(course="Nom de la course")
+async def publier_planning(interaction: discord.Interaction, course: str):
+  config_data = load_json(CONFIG_FILE, {})
+  if course not in config_data:
+    await interaction.response.send_message(
+        f"⚠️ La course **{course}** est introuvable dans la configuration.",
+        ephemeral=True,
+    )
+    return
+
+  embed = generate_planning_embed(course)
+  view = PublicRegisterView(course)
+
+  await interaction.response.send_message(
+      f"📌 **Planning publié pour {course} !**", ephemeral=True
+  )
+
+  msg = await interaction.followup.send(embed=embed, view=view)
+
+  try:
+    await msg.pin()
+  except Exception as e:
+    print(f"Erreur lors du pin : {e}")
+
+  config_data[course]["message_id"] = msg.id
+  with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+    json.dump(config_data, f, indent=4, ensure_ascii=False)
+
+
+@publier_planning.autocomplete("course")
+async def publier_course_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+  try:
+    course_config = load_json(CONFIG_FILE, {})
+    if not isinstance(course_config, dict):
+      return []
+
+    courses = list(course_config.keys())
+    choices = [
+        app_commands.Choice(name=str(c), value=str(c))
+        for c in courses
+        if current.lower() in str(c).lower()
+    ]
+    return choices[:25]
+  except Exception as e:
+    print(f"Erreur autocomplétion course : {e}")
+    return []
+
+
+@bot.event
+async def on_ready():
+  if not "RappelChampionnat" in bot.cogs:
+    await bot.add_cog(RappelChampionnat(bot))
+
+  courses_config = load_json(CONFIG_FILE, {})
+  for course_name in courses_config.keys():
+    bot.add_view(PublicRegisterView(course_name))
+
+  print(f"Bot connecté en tant que {bot.user} !")
+  try:
+    synced = await bot.tree.sync()
+    print(f"Commandes slash synchronisées globalement : {len(synced)}")
+  except Exception as en:
+    print(f"Erreur de synchronisation des commandes : {en}")
+
+
+bot.run(os.getenv("DISCORD_TOKEN"))
