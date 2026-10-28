@@ -16,10 +16,10 @@ DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 SALON_ENTRAINEMENT_ID = 1525497448305393705
 ROLE_PILOTE_SPM_ID = 1222995895000371290
 
-# --- CONFIGURATION DES INTENTS DE FORCE (Aucun privilège exigé) ---
-intents = discord.Intents.none()
-intents.guilds = True
-intents.guild_messages = True
+# --- CONFIGURATION DES INTENTS ---
+intents = discord.Intents.default()
+intents.members = True
+intents.presences = True
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -426,8 +426,8 @@ class PublicRegisterView(discord.ui.View):
       pilote_pseudo = interaction.user.display_name
       view = DispoView(
           pilote=pilote_pseudo,
-          course=self.course,
-          course_data=config_data[self.course],
+            course=self.course,
+            course_data=config_data[self.course],
       )
 
       await interaction.followup.send(
@@ -507,8 +507,8 @@ async def on_ready():
   try:
     synced = await bot.tree.sync()
     print(f"Commandes slash synchronisées globalement : {len(synced)}")
-  except Exception as e:
-    print(f"Erreur de synchronisation des commandes : {e}")
+  except Exception as en:
+    print(f"Erreur de synchronisation des commandes : {en}")
 
 
 bot.run(os.getenv("DISCORD_TOKEN"))
