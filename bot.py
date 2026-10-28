@@ -488,7 +488,7 @@ async def publier_planning(interaction: discord.Interaction, course: str):
 
   await interaction.response.send_message(
       f"📌 **Planning publié pour {course} !**", ephemeral=True
-  )
+    )
 
   msg = await interaction.followup.send(embed=embed, view=view)
 
