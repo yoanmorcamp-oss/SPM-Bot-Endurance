@@ -18,8 +18,10 @@ DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 SALON_ENTRAINEMENT_ID = 1525497448305393705
 ROLE_PILOTE_SPM_ID = 1222995895000371290
 
-# Intents de base standards
+# --- CORRECTION DES INTENTS (Strictement sans privilèges) ---
 intents = discord.Intents.default()
+intents.members = False      # Désactivé explicitement
+intents.presences = False    # Désactivé explicitement
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
