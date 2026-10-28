@@ -18,10 +18,8 @@ DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 SALON_ENTRAINEMENT_ID = 1525497448305393705
 ROLE_PILOTE_SPM_ID = 1222995895000371290
 
-# Configuration des intents (100% neutre, évite l'erreur PrivilegedIntentsRequired sur Render)
-intents = discord.Intents.none()
-intents.guilds = True
-intents.guild_messages = True
+# Intents de base standards
+intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -313,7 +311,6 @@ class ConfirmButton(discord.ui.Button):
         content="✅ **Disponibilités enregistrées avec succès !**", view=view
     )
 
-    # Mise à jour directe du message public existant
     if view.public_message:
       try:
         new_embed = generate_planning_embed(view.course)
@@ -365,7 +362,6 @@ class AbsentButton(discord.ui.Button):
         content=f"❌ **Absence enregistrée pour {view.pilote}.**", view=view
     )
 
-    # Mise à jour directe du message public existant
     if view.public_message:
       try:
         new_embed = generate_planning_embed(view.course)
@@ -411,7 +407,6 @@ class ClearButton(discord.ui.Button):
         content="🗑️ **Tes choix ont été entièrement effacés !**", view=view
     )
 
-    # Mise à jour directe du message public existant
     if view.public_message:
       try:
         new_embed = generate_planning_embed(view.course)
@@ -506,4 +501,41 @@ async def publier_planning(interaction: discord.Interaction, course: str):
 
 @publier_planning.autocomplete("course")
 async def publier_course_autocomplete(
-    interaction: discord
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+  try:
+    course_config = load_json(CONFIG_FILE, {})
+    if not isinstance(course_config, dict):
+      return []
+
+    courses = list(course_config.keys())
+    choices = [
+        app_commands.Choice(name=str(c), value=str(c))
+        for c in courses
+        if current.lower() in str(c).lower()
+    ]
+    return choices[:25]
+  except Exception as e:
+    print(f"Erreur autocomplétion course : {e}")
+    return []
+
+
+# --- INITIALISATION ET SYNCHRONISATION ---
+@bot.event
+async def on_ready():
+  if not "RappelChampionnat" in bot.cogs:
+    await bot.add_cog(RappelChampionnat(bot))
+
+  courses_config = load_json(CONFIG_FILE, {})
+  for course_name in courses_config.keys():
+    bot.add_view(PublicRegisterView(course_name))
+
+  print(f"Bot connecté en tant que {bot.user} !")
+  try:
+    synced = await bot.tree.sync()
+    print(f"Commandes slash synchronisées globalement : {len(synced)}")
+  except Exception as e:
+    print(f"Erreur de synchronisation des commandes : {e}")
+
+
+bot.run(os.getenv("DISCORD_TOKEN"))
