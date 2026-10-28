@@ -1,2 +1,4 @@
 discord.py==2.3.2
+audioop-lts>=0.2.2
 pandas>=2.0.0
+numpy>=2.0.0
