@@ -16,11 +16,8 @@ DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 SALON_ENTRAINEMENT_ID = 1525497448305393705
 ROLE_PILOTE_SPM_ID = 1222995895000371290
 
-# --- CONFIGURATION DES INTENTS ABSOLUMENT NEUTRES ---
-intents = discord.Intents()
-intents.guilds = True
-intents.guild_messages = True
-intents.message_content = True
+# --- CONFIGURATION DES INTENTS COMPLETS (Puisque activés sur le portail) ---
+intents = discord.Intents.all()
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
