@@ -18,10 +18,12 @@ DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 SALON_ENTRAINEMENT_ID = 1525497448305393705
 ROLE_PILOTE_SPM_ID = 1222995895000371290
 
-# --- ACTIVATION DES INTENTS REQUIS ---
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True  # Activé pour correspondre à ton application Discord
+# --- CONFIGURATION STRICTEMENT SANS INTENTS PRIVILÉGIÉS ---
+intents = discord.Intents(
+    guilds=True,
+    guild_messages=True,
+    message_content=True
+)
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
