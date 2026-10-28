@@ -18,9 +18,9 @@ DRIVERS_FILE = os.path.join(BASE_DIR, "drivers.json")
 SALON_ENTRAINEMENT_ID = 1525497448305393705
 ROLE_PILOTE_SPM_ID = 1222995895000371290
 
-# Correction des intents pour éviter l'erreur PrivilegedIntentsRequired sur Render
+# Configuration des intents (sans privilèges superflus pour éviter l'erreur sur Render)
 intents = discord.Intents.default()
-intents.message_content = True  # Nécessaire pour lire le contenu des messages si besoin
+intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -311,20 +311,14 @@ class ConfirmButton(discord.ui.Button):
         content="✅ **Disponibilités enregistrées avec succès !**", view=view
     )
 
+    # Mise à jour directe du message public existant
     if view.public_message:
       try:
-        await view.public_message.delete()
-      except Exception:
-        pass
-
-      new_embed = generate_planning_embed(view.course)
-      new_view = PublicRegisterView(view.course)
-      channel = interaction.channel
-      new_msg = await channel.send(embed=new_embed, view=new_view)
-
-      config[view.course]["message_id"] = new_msg.id
-      with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=4, ensure_ascii=False)
+        new_embed = generate_planning_embed(view.course)
+        new_view = PublicRegisterView(view.course)
+        await view.public_message.edit(embed=new_embed, view=new_view)
+      except Exception as e:
+        print(f"Erreur lors de la mise à jour du message public : {e}")
 
 
 class AbsentButton(discord.ui.Button):
@@ -369,20 +363,14 @@ class AbsentButton(discord.ui.Button):
         content=f"❌ **Absence enregistrée pour {view.pilote}.**", view=view
     )
 
+    # Mise à jour directe du message public existant
     if view.public_message:
       try:
-        await view.public_message.delete()
-      except Exception:
-        pass
-
-      new_embed = generate_planning_embed(view.course)
-      new_view = PublicRegisterView(view.course)
-      channel = interaction.channel
-      new_msg = await channel.send(embed=new_embed, view=new_view)
-
-      config[view.course]["message_id"] = new_msg.id
-      with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=4, ensure_ascii=False)
+        new_embed = generate_planning_embed(view.course)
+        new_view = PublicRegisterView(view.course)
+        await view.public_message.edit(embed=new_embed, view=new_view)
+      except Exception as e:
+        print(f"Erreur lors de la mise à jour du message public : {e}")
 
 
 class ClearButton(discord.ui.Button):
@@ -421,20 +409,14 @@ class ClearButton(discord.ui.Button):
         content="🗑️ **Tes choix ont été entièrement effacés !**", view=view
     )
 
+    # Mise à jour directe du message public existant
     if view.public_message:
       try:
-        await view.public_message.delete()
-      except Exception:
-        pass
-
-      new_embed = generate_planning_embed(view.course)
-      new_view = PublicRegisterView(view.course)
-      channel = interaction.channel
-      new_msg = await channel.send(embed=new_embed, view=new_view)
-
-      config_data[view.course]["message_id"] = new_msg.id
-      with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config_data, f, indent=4, ensure_ascii=False)
+        new_embed = generate_planning_embed(view.course)
+        new_view = PublicRegisterView(view.course)
+        await view.public_message.edit(embed=new_embed, view=new_view)
+      except Exception as e:
+        print(f"Erreur lors de la mise à jour du message public : {e}")
 
 
 # --- BOUTON PERSISTANT SUR LE MESSAGE PUBLIC ---
