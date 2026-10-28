@@ -503,4 +503,12 @@ async def on_ready():
   for course_name in courses_config.keys():
     bot.add_view(PublicRegisterView(course_name))
 
-  print(f"Bot connecté en tant que {bot
+  print(f"Bot connecté en tant que {bot.user} !")
+  try:
+    synced = await bot.tree.sync()
+    print(f"Commandes slash synchronisées globalement : {len(synced)}")
+  except Exception as e:
+    print(f"Erreur de synchronisation des commandes : {e}")
+
+
+bot.run(os.getenv("DISCORD_TOKEN"))
