@@ -505,6 +505,9 @@ async def on_ready():
   print(f"Bot connecté en tant que {bot.user} !")
   try:
     synced = await bot.tree.sync()
-    print(f"Commandes slash synchronisées globalement : {len(synced)}")
+    print(f"Commandes synchronisées : {len(synced)}")
   except Exception as en:
-    print(f"Erreur de synchronisation des commandes
+    print(f"Erreur de synchronisation : {en}")
+
+
+bot.run(os.getenv("DISCORD_TOKEN"))
