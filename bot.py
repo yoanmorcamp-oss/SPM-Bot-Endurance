@@ -112,7 +112,6 @@ def generate_planning_embed(course: str):
   categories = course_data.get("categories", [])
   has_data = False
 
-  # Ordre logique pour trier les jours de la semaine
   ordre_jours = {
       "Lundi": 1,
       "Mardi": 2,
@@ -131,7 +130,6 @@ def generate_planning_embed(course: str):
       "Général": 15,
   }
 
-  # 1. Traitement des catégories
   for cat in categories:
     cat_content = course_data.get(cat, {})
     lignes_cat = []
@@ -157,7 +155,6 @@ def generate_planning_embed(course: str):
         name=f"🏆 Catégorie : {cat}", value=valeur_champ, inline=False
     )
 
-  # 2. Traitement de la section des absents
   absents_list = course_data.get("absents", [])
   if absents_list:
     has_data = True
@@ -197,11 +194,9 @@ class DispoView(discord.ui.View):
     self.selected_categories = set()
     self.selected_creneaux = set()
 
-    # Boutons Catégories
     for cat in course_data.get("categories", []):
       self.add_item(ItemButton(cat, "cat"))
 
-    # Boutons Créneaux : Gestion spécifique pour les 24H du Mans ou globale
     if course == "24H du Mans":
       mapping_mans = {"23 octobre": "13h00", "24 octobre": "15h30"}
       for jour, creneau in mapping_mans.items():
@@ -215,7 +210,6 @@ class DispoView(discord.ui.View):
           label_btn = f"{jour} - {creneau}"
           self.add_item(ItemButton(label_btn, "creneau"))
 
-    # Boutons d'action
     self.add_item(ConfirmButton())
     self.add_item(AbsentButton())
     self.add_item(ClearButton())
@@ -277,7 +271,7 @@ class ConfirmButton(discord.ui.Button):
 
     c_data = config[view.course]
 
-    # --- NETTOYAGE PRÉALABLE DES ANCIENS CHOIX DU PILOTE ---
+    # Nettoyage préalable
     for sub_k, sub_v in list(c_data.items()):
       if isinstance(sub_v, dict):
         for day_k, day_v in list(sub_v.items()):
@@ -286,11 +280,10 @@ class ConfirmButton(discord.ui.Button):
               if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
                 slot_pilotes.remove(view.pilote)
 
-    # Retrait des absents
     if "absents" in c_data and view.pilote in c_data["absents"]:
       c_data["absents"].remove(view.pilote)
 
-    # --- ENREGISTREMENT DES NOUVEAUX CHOIX ---
+    # Enregistrement
     for cat in view.selected_categories:
       if cat not in c_data:
         c_data[cat] = {}
@@ -318,9 +311,21 @@ class ConfirmButton(discord.ui.Button):
         content="✅ **Disponibilités enregistrées avec succès !**", view=view
     )
 
+    # Repost en bas du fil pour qu'il soit toujours le dernier message
     if view.public_message:
+      try:
+        await view.public_message.delete()
+      except Exception:
+        pass
+
       new_embed = generate_planning_embed(view.course)
-      await view.public_message.edit(embed=new_embed)
+      new_view = PublicRegisterView(view.course)
+      channel = interaction.channel
+      new_msg = await channel.send(embed=new_embed, view=new_view)
+
+      config[view.course]["message_id"] = new_msg.id
+      with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
 
 
 class AbsentButton(discord.ui.Button):
@@ -366,8 +371,19 @@ class AbsentButton(discord.ui.Button):
     )
 
     if view.public_message:
+      try:
+        await view.public_message.delete()
+      except Exception:
+        pass
+
       new_embed = generate_planning_embed(view.course)
-      await view.public_message.edit(embed=new_embed)
+      new_view = PublicRegisterView(view.course)
+      channel = interaction.channel
+      new_msg = await channel.send(embed=new_embed, view=new_view)
+
+      config[view.course]["message_id"] = new_msg.id
+      with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
 
 
 class ClearButton(discord.ui.Button):
@@ -387,7 +403,7 @@ class ClearButton(discord.ui.Button):
       c_data = config_data[view.course]
       for sub_k, sub_v in list(c_data.items()):
         if isinstance(sub_v, dict):
-          for day_k, day_v in list(day_v.items()):
+          for day_k, day_v in list(sub_v.items()):
             if isinstance(day_v, dict):
               for slot_k, slot_pilotes in list(day_v.items()):
                 if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
@@ -407,8 +423,19 @@ class ClearButton(discord.ui.Button):
     )
 
     if view.public_message:
+      try:
+        await view.public_message.delete()
+      except Exception:
+        pass
+
       new_embed = generate_planning_embed(view.course)
-      await view.public_message.edit(embed=new_embed)
+      new_view = PublicRegisterView(view.course)
+      channel = interaction.channel
+      new_msg = await channel.send(embed=new_embed, view=new_view)
+
+      config_data[view.course]["message_id"] = new_msg.id
+      with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config_data, f, indent=4, ensure_ascii=False)
 
 
 # --- BOUTON PERSISTANT SUR LE MESSAGE PUBLIC ---
@@ -478,12 +505,10 @@ async def publier_planning(interaction: discord.Interaction, course: str):
   embed = generate_planning_embed(course)
   view = PublicRegisterView(course)
 
-  # 1. Accusé de réception éphémère (pour toi seul)
   await interaction.response.send_message(
       f"📌 **Planning publié pour {course} !**", ephemeral=True
   )
 
-  # 2. Envoi public du message avec le bouton dans le fil/salon actif via followup
   msg = await interaction.followup.send(embed=embed, view=view)
 
   try:
@@ -496,7 +521,6 @@ async def publier_planning(interaction: discord.Interaction, course: str):
     json.dump(config_data, f, indent=4, ensure_ascii=False)
 
 
-# --- AUTOCOMPLÉTION DYNAMIQUE DES COURSES ---
 @publier_planning.autocomplete("course")
 async def publier_course_autocomplete(
     interaction: discord.Interaction, current: str
