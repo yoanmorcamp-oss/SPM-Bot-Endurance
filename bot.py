@@ -45,7 +45,6 @@ def run_web_server():
   server.serve_forever()
 
 
-# Démarrage du serveur web en arrière-plan pour éviter les timeouts de Render
 threading.Thread(target=run_web_server, daemon=True).start()
 
 
@@ -57,6 +56,11 @@ def load_json(filename, default):
       except json.JSONDecodeError:
         return default
   return default
+
+
+def save_json(filename, data):
+  with open(filename, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=4, ensure_ascii=False)
 
 
 # --- GESTIONNAIRE DE RAPPEL AUTOMATIQUE CHAMPIONNAT ---
@@ -98,9 +102,10 @@ class RappelChampionnat(commands.Cog):
 
 
 # --- FONCTION DE GÉNÉRATION DE L'EMBED PRINCIPAL ---
-def generate_planning_embed(course: str):
+def generate_planning_embed(guild_id: str, course: str):
   config = load_json(CONFIG_FILE, {})
-  course_data = config.get(course, {})
+  guild_config = config.get(guild_id, {})
+  course_data = guild_config.get(course, {})
 
   embed = discord.Embed(
       title=f"🏎️ Planning des Disponibilités — {course}",
@@ -178,14 +183,16 @@ def generate_planning_embed(course: str):
   return embed
 
 
-# --- FONCTION UTILITAIRE POUR RAFRAÎCHIR LE PLANNING EN BAS DU SALON ---
+# --- RAFRAÎCHISSEMENT DU PLANNING ---
 async def refresh_public_planning(interaction: discord.Interaction, course: str):
+  guild_id = str(interaction.guild_id)
   config = load_json(CONFIG_FILE, {})
-  if course not in config:
+
+  if guild_id not in config or course not in config[guild_id]:
     return
 
   channel = interaction.channel
-  old_msg_id = config[course].get("message_id")
+  old_msg_id = config[guild_id][course].get("message_id")
 
   if old_msg_id:
     try:
@@ -194,7 +201,7 @@ async def refresh_public_planning(interaction: discord.Interaction, course: str)
     except Exception:
       pass
 
-  embed = generate_planning_embed(course)
+  embed = generate_planning_embed(guild_id, course)
   view = PublicRegisterView(course)
   new_msg = await channel.send(embed=embed, view=view)
 
@@ -203,19 +210,21 @@ async def refresh_public_planning(interaction: discord.Interaction, course: str)
   except Exception as e:
     print(f"Erreur lors du pin : {e}")
 
-  config[course]["message_id"] = new_msg.id
-  with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-    json.dump(config, f, indent=4, ensure_ascii=False)
+  config[guild_id][course]["message_id"] = new_msg.id
+  save_json(CONFIG_FILE, config)
 
 
-# --- INTERFACE INTERACTIVE DE SÉLECTION ---
+# --- INTERFACE INTERACTIVE ---
 class DispoView(discord.ui.View):
 
-  def __init__(self, pilote: str, course: str, course_data: dict):
+  def __init__(
+      self, pilote: str, course: str, course_data: dict, guild_id: str
+  ):
     super().__init__(timeout=180)
     self.pilote = pilote
     self.course = course
     self.course_data = course_data
+    self.guild_id = guild_id
 
     self.selected_categories = set()
     self.selected_creneaux = set()
@@ -275,13 +284,12 @@ class ConfirmButton(discord.ui.Button):
 
   def __init__(self):
     super().__init__(
-        label="✅ Valider mes dispos",
-        style=discord.ButtonStyle.primary,
-        row=4,
+        label="✅ Valider mes dispos", style=discord.ButtonStyle.primary, row=4
     )
 
   async def callback(self, interaction: discord.Interaction):
     view: DispoView = self.view
+    guild_id = view.guild_id
 
     if not view.selected_categories or not view.selected_creneaux:
       await interaction.response.send_message(
@@ -292,10 +300,12 @@ class ConfirmButton(discord.ui.Button):
       return
 
     config = load_json(CONFIG_FILE, {})
-    if view.course not in config:
-      config[view.course] = {}
+    if guild_id not in config:
+      config[guild_id] = {}
+    if view.course not in config[guild_id]:
+      config[guild_id][view.course] = {}
 
-    c_data = config[view.course]
+    c_data = config[guild_id][view.course]
 
     for sub_k, sub_v in list(c_data.items()):
       if isinstance(sub_v, dict):
@@ -326,8 +336,7 @@ class ConfirmButton(discord.ui.Button):
         if view.pilote not in c_data[cat][jour][creneau]:
           c_data[cat][jour][creneau].append(view.pilote)
 
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-      json.dump(config, f, indent=4, ensure_ascii=False)
+    save_json(CONFIG_FILE, config)
 
     for child in view.children:
       child.disabled = True
@@ -349,12 +358,15 @@ class AbsentButton(discord.ui.Button):
 
   async def callback(self, interaction: discord.Interaction):
     view: DispoView = self.view
+    guild_id = view.guild_id
     config = load_json(CONFIG_FILE, {})
 
-    if view.course not in config:
-      config[view.course] = {}
+    if guild_id not in config:
+      config[guild_id] = {}
+    if view.course not in config[guild_id]:
+      config[guild_id][view.course] = {}
 
-    c_data = config[view.course]
+    c_data = config[guild_id][view.course]
 
     for sub_k, sub_v in list(c_data.items()):
       if isinstance(sub_v, dict):
@@ -370,8 +382,7 @@ class AbsentButton(discord.ui.Button):
     if view.pilote not in c_data["absents"]:
       c_data["absents"].append(view.pilote)
 
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-      json.dump(config, f, indent=4, ensure_ascii=False)
+    save_json(CONFIG_FILE, config)
 
     for child in view.children:
       child.disabled = True
@@ -386,17 +397,16 @@ class ClearButton(discord.ui.Button):
 
   def __init__(self):
     super().__init__(
-        label="🗑️ Effacer mes choix",
-        style=discord.ButtonStyle.danger,
-        row=4,
+        label="🗑️ Effacer mes choix", style=discord.ButtonStyle.danger, row=4
     )
 
   async def callback(self, interaction: discord.Interaction):
     view: DispoView = self.view
+    guild_id = view.guild_id
     config_data = load_json(CONFIG_FILE, {})
 
-    if view.course in config_data:
-      c_data = config_data[view.course]
+    if guild_id in config_data and view.course in config_data[guild_id]:
+      c_data = config_data[guild_id][view.course]
       for sub_k, sub_v in list(c_data.items()):
         if isinstance(sub_v, dict):
           for day_k, day_v in list(sub_v.items()):
@@ -408,8 +418,7 @@ class ClearButton(discord.ui.Button):
       if "absents" in c_data and view.pilote in c_data["absents"]:
         c_data["absents"].remove(view.pilote)
 
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-      json.dump(config_data, f, indent=4, ensure_ascii=False)
+    save_json(CONFIG_FILE, config_data)
 
     for child in view.children:
       child.disabled = True
@@ -439,8 +448,13 @@ class PublicRegisterView(discord.ui.View):
     if interaction.data.get("custom_id") == expected_custom_id:
       await interaction.response.defer(ephemeral=True)
 
+      guild_id = str(interaction.guild_id)
       config_data = load_json(CONFIG_FILE, {})
-      if self.course not in config_data:
+
+      # Support rétrocompatible (si le json avait encore l'ancienne structure)
+      guild_config = config_data.get(guild_id, config_data)
+
+      if self.course not in guild_config:
         await interaction.followup.send(
             f"⚠️ La course **{self.course}** est introuvable.", ephemeral=True
         )
@@ -450,7 +464,8 @@ class PublicRegisterView(discord.ui.View):
       view = DispoView(
           pilote=pilote_pseudo,
           course=self.course,
-          course_data=config_data[self.course],
+          course_data=guild_config[self.course],
+          guild_id=guild_id,
       )
 
       await interaction.followup.send(
@@ -469,15 +484,20 @@ class PublicRegisterView(discord.ui.View):
 )
 @app_commands.describe(course="Nom de la course")
 async def publier_planning(interaction: discord.Interaction, course: str):
+  guild_id = str(interaction.guild_id)
   config_data = load_json(CONFIG_FILE, {})
-  if course not in config_data:
+
+  guild_config = config_data.get(guild_id, config_data)
+
+  if course not in guild_config:
     await interaction.response.send_message(
-        f"⚠️ La course **{course}** est introuvable dans la configuration.",
+        f"⚠️ La course **{course}** est introuvable dans la configuration de ce"
+        " serveur.",
         ephemeral=True,
     )
     return
 
-  embed = generate_planning_embed(course)
+  embed = generate_planning_embed(guild_id, course)
   view = PublicRegisterView(course)
 
   await interaction.response.send_message(
@@ -491,9 +511,11 @@ async def publier_planning(interaction: discord.Interaction, course: str):
   except Exception as e:
     print(f"Erreur lors du pin : {e}")
 
-  config_data[course]["message_id"] = msg.id
-  with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-    json.dump(config_data, f, indent=4, ensure_ascii=False)
+  if guild_id not in config_data:
+    config_data[guild_id] = {}
+
+  config_data[guild_id][course]["message_id"] = msg.id
+  save_json(CONFIG_FILE, config_data)
 
 
 @publier_planning.autocomplete("course")
@@ -501,13 +523,21 @@ async def publier_course_autocomplete(
     interaction: discord.Interaction, current: str
 ) -> list[app_commands.Choice[str]]:
   try:
+    guild_id = str(interaction.guild_id)
     course_config = load_json(CONFIG_FILE, {})
-    if not isinstance(course_config, dict) or not course_config:
+
+    if not isinstance(course_config, dict):
       return []
 
+    # Récupération des courses spécifiques au serveur actuel
+    guild_courses = course_config.get(guild_id, course_config)
+    if not isinstance(guild_courses, dict):
+      return []
+
+    courses = list(guild_courses.keys())
     choices = [
         app_commands.Choice(name=str(c), value=str(c))
-        for c in course_config.keys()
+        for c in courses
         if current.lower() in str(c).lower()
     ]
     return choices[:25]
@@ -522,8 +552,10 @@ async def on_ready():
     await bot.add_cog(RappelChampionnat(bot))
 
   courses_config = load_json(CONFIG_FILE, {})
-  for course_name in courses_config.keys():
-    bot.add_view(PublicRegisterView(course_name))
+  for key, value in courses_config.items():
+    if isinstance(value, dict):
+      for course_name in value.keys():
+        bot.add_view(PublicRegisterView(course_name))
 
   print(f"Bot connecté en tant que {bot.user} !")
   try:
