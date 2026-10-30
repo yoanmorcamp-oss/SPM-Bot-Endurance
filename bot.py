@@ -322,4 +322,10 @@ class ConfirmButton(discord.ui.Button):
         for day_k, day_v in list(sub_v.items()):
           if isinstance(day_v, dict):
             for slot_k, slot_pilotes in list(day_v.items()):
-              if isinstance(slot_pilotes, list)
+              if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
+                slot_pilotes.remove(view.pilote)
+
+    if "absents" in c_data and view.pilote in c_data["absents"]:
+      c_data["absents"].remove(view.pilote)
+
+    for cat in view.selected_
