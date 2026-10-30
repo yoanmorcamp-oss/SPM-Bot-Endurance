@@ -104,8 +104,10 @@ class RappelChampionnat(commands.Cog):
 # --- FONCTION DE GÉNÉRATION DE L'EMBED PRINCIPAL ---
 def generate_planning_embed(guild_id: str, course: str):
   config = load_json(CONFIG_FILE, {})
-  guild_config = config.get(guild_id, {})
-  course_data = guild_config.get(course, {})
+  course_template = config.get(course, {})
+
+  # Récupération des données spécifiques au serveur (s'il y en a)
+  server_data = config.get(guild_id, {}).get(course, {})
 
   embed = discord.Embed(
       title=f"🏎️ Planning des Disponibilités — {course}",
@@ -117,7 +119,7 @@ def generate_planning_embed(guild_id: str, course: str):
       color=discord.Color.gold(),
   )
 
-  categories = course_data.get("categories", [])
+  categories = course_template.get("categories", [])
   has_data = False
 
   ordre_jours = {
@@ -139,7 +141,7 @@ def generate_planning_embed(guild_id: str, course: str):
   }
 
   for cat in categories:
-    cat_content = course_data.get(cat, {})
+    cat_content = server_data.get(cat, {})
     lignes_cat = []
 
     if isinstance(cat_content, dict):
@@ -163,7 +165,7 @@ def generate_planning_embed(guild_id: str, course: str):
         name=f"🏆 Catégorie : {cat}", value=valeur_champ, inline=False
     )
 
-  absents_list = course_data.get("absents", [])
+  absents_list = server_data.get("absents", [])
   if absents_list:
     has_data = True
     absents_str = ", ".join(absents_list)
@@ -188,11 +190,11 @@ async def refresh_public_planning(interaction: discord.Interaction, course: str)
   guild_id = str(interaction.guild_id)
   config = load_json(CONFIG_FILE, {})
 
-  if guild_id not in config or course not in config[guild_id]:
+  if course not in config:
     return
 
   channel = interaction.channel
-  old_msg_id = config[guild_id][course].get("message_id")
+  old_msg_id = config.get(guild_id, {}).get(course, {}).get("message_id")
 
   if old_msg_id:
     try:
@@ -209,6 +211,11 @@ async def refresh_public_planning(interaction: discord.Interaction, course: str)
     await new_msg.pin()
   except Exception as e:
     print(f"Erreur lors du pin : {e}")
+
+  if guild_id not in config:
+    config[guild_id] = {}
+  if course not in config[guild_id]:
+    config[guild_id][course] = {}
 
   config[guild_id][course]["message_id"] = new_msg.id
   save_json(CONFIG_FILE, config)
@@ -451,10 +458,7 @@ class PublicRegisterView(discord.ui.View):
       guild_id = str(interaction.guild_id)
       config_data = load_json(CONFIG_FILE, {})
 
-      # Support rétrocompatible (si le json avait encore l'ancienne structure)
-      guild_config = config_data.get(guild_id, config_data)
-
-      if self.course not in guild_config:
+      if self.course not in config_data:
         await interaction.followup.send(
             f"⚠️ La course **{self.course}** est introuvable.", ephemeral=True
         )
@@ -464,7 +468,7 @@ class PublicRegisterView(discord.ui.View):
       view = DispoView(
           pilote=pilote_pseudo,
           course=self.course,
-          course_data=guild_config[self.course],
+          course_data=config_data[self.course],
           guild_id=guild_id,
       )
 
@@ -487,12 +491,9 @@ async def publier_planning(interaction: discord.Interaction, course: str):
   guild_id = str(interaction.guild_id)
   config_data = load_json(CONFIG_FILE, {})
 
-  guild_config = config_data.get(guild_id, config_data)
-
-  if course not in guild_config:
+  if course not in config_data:
     await interaction.response.send_message(
-        f"⚠️ La course **{course}** est introuvable dans la configuration de ce"
-        " serveur.",
+        f"⚠️ La course **{course}** est introuvable dans la configuration.",
         ephemeral=True,
     )
     return
@@ -513,28 +514,30 @@ async def publier_planning(interaction: discord.Interaction, course: str):
 
   if guild_id not in config_data:
     config_data[guild_id] = {}
+  if course not in config_data[guild_id]:
+    config_data[guild_id][course] = {}
 
   config_data[guild_id][course]["message_id"] = msg.id
   save_json(CONFIG_FILE, config_data)
 
 
+# --- AUTOCOMPLÉTION : AFFICHE TOUTES LES COURSES DU CATALOGUE ---
 @publier_planning.autocomplete("course")
 async def publier_course_autocomplete(
     interaction: discord.Interaction, current: str
 ) -> list[app_commands.Choice[str]]:
   try:
-    guild_id = str(interaction.guild_id)
     course_config = load_json(CONFIG_FILE, {})
-
     if not isinstance(course_config, dict):
       return []
 
-    # Récupération des courses spécifiques au serveur actuel
-    guild_courses = course_config.get(guild_id, course_config)
-    if not isinstance(guild_courses, dict):
-      return []
+    # On ne prend que les clés de premier niveau qui NE SONT PAS des ID de serveur (chiffres uniquement)
+    courses = [
+        k
+        for k in course_config.keys()
+        if not k.isdigit() and isinstance(course_config[k], dict)
+    ]
 
-    courses = list(guild_courses.keys())
     choices = [
         app_commands.Choice(name=str(c), value=str(c))
         for c in courses
@@ -552,10 +555,9 @@ async def on_ready():
     await bot.add_cog(RappelChampionnat(bot))
 
   courses_config = load_json(CONFIG_FILE, {})
-  for key, value in courses_config.items():
-    if isinstance(value, dict):
-      for course_name in value.keys():
-        bot.add_view(PublicRegisterView(course_name))
+  for course_name, content in courses_config.items():
+    if not course_name.isdigit() and isinstance(content, dict):
+      bot.add_view(PublicRegisterView(course_name))
 
   print(f"Bot connecté en tant que {bot.user} !")
   try:
