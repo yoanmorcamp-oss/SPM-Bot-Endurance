@@ -502,13 +502,12 @@ async def publier_course_autocomplete(
 ) -> list[app_commands.Choice[str]]:
   try:
     course_config = load_json(CONFIG_FILE, {})
-    if not isinstance(course_config, dict):
+    if not isinstance(course_config, dict) or not course_config:
       return []
 
-    courses = list(course_config.keys())
     choices = [
         app_commands.Choice(name=str(c), value=str(c))
-        for c in courses
+        for c in course_config.keys()
         if current.lower() in str(c).lower()
     ]
     return choices[:25]
