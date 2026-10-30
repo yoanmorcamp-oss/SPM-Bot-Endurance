@@ -152,7 +152,7 @@ def generate_planning_embed(guild_id: str, course: str):
       for jour in jours_tries:
         creneaux_dict = cat_content[jour]
         if isinstance(creneaux_dict, dict):
-          # Tri chronologique des créneaux
+          # Tri chronologique des créneaux (13h00 avant 18h00)
           creneaux_tries = sorted(creneaux_dict.keys())
           for creneau in creneaux_tries:
             pilotes_list = creneaux_dict[creneau]
@@ -281,48 +281,4 @@ class ItemButton(discord.ui.Button):
 
     elif self.group == "creneau":
       if self.label in view.selected_creneaux:
-        view.selected_creneaux.remove(self.label)
-        self.style = discord.ButtonStyle.secondary
-      else:
-        view.selected_creneaux.add(self.label)
-        self.style = discord.ButtonStyle.success
-
-    await interaction.response.edit_message(view=view)
-
-
-class ConfirmButton(discord.ui.Button):
-
-  def __init__(self):
-    super().__init__(
-        label="✅ Valider mes dispos", style=discord.ButtonStyle.primary, row=4
-    )
-
-  async def callback(self, interaction: discord.Interaction):
-    view: DispoView = self.view
-    guild_id = view.guild_id
-
-    if not view.selected_categories or not view.selected_creneaux:
-      await interaction.response.send_message(
-          "⚠️ Tu dois sélectionner au moins une catégorie et un créneau"
-          " horaire !",
-          ephemeral=True,
-      )
-      return
-
-    config = load_json(CONFIG_FILE, {})
-    if guild_id not in config:
-      config[guild_id] = {}
-    if view.course not in config[guild_id]:
-      config[guild_id][view.course] = {}
-
-    c_data = config[guild_id][view.course]
-
-    for sub_k, sub_v in list(c_data.items()):
-      if isinstance(sub_v, dict):
-        for day_k, day_v in list(sub_v.items()):
-          if isinstance(day_v, dict):
-            for slot_k, slot_pilotes in list(day_v.items()):
-              if isinstance(slot_pilotes, list) and view.pilote in slot_pilotes:
-                slot_pilotes.remove(view.pilote)
-
-    if "absents
+        view.selected_creneaux.remove
